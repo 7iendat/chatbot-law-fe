@@ -9,7 +9,7 @@ interface SidebarProps {
 
 export default function Sidebar({ collapsed }: SidebarProps) {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
-
+    const [selectedChat, setSelectedChat] = useState<number | null>(null);
     const handleMenuToggle = () => {
         setIsMenuOpen(!isMenuOpen);
     };
@@ -38,7 +38,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
                             collapsed ? "text-center" : ""
                         }`}
                     >
-                        <div className="flex items-center justify-start hover:cursor-pointer gap-2 mb-4 hover:bg-gray-200 rounded-xl p-2">
+                        <div className="group relative flex items-center justify-start gap-2 mb-4 hover:bg-gray-200 rounded-xl p-2 cursor-pointer">
                             <Image
                                 width={40}
                                 height={40}
@@ -55,7 +55,13 @@ export default function Sidebar({ collapsed }: SidebarProps) {
                             >
                                 Angel AI
                             </h1>
+
+                            {/* Popover */}
+                            <div className="absolute left-full top-1/2 transform -translate-y-1/2 ml-2 opacity-0 group-hover:opacity-100 bg-white border border-gray-300 rounded-md shadow-lg p-2 text-sm text-black whitespace-nowrap transition-all duration-300 z-10">
+                                New Chat
+                            </div>
                         </div>
+
                         <h2
                             className={`text-base font-semibold px-2 ${
                                 collapsed ? "hidden" : "block"
@@ -69,8 +75,13 @@ export default function Sidebar({ collapsed }: SidebarProps) {
                         {[...Array(5)].map((_, i) => (
                             <button
                                 key={i}
-                                className={`w-full text-left px-2 py-2 rounded hover:bg-gray-200 ${
+                                onClick={() => setSelectedChat(i)}
+                                className={`w-full text-left px-2 py-2 rounded  cursor-pointer transition ${
                                     collapsed ? "text-center px-1" : ""
+                                } ${
+                                    selectedChat === i
+                                        ? "bg-gray-400/40 hover:bg-gray-200 " // nếu chọn thì đổi màu
+                                        : "hover:bg-gray-200"
                                 }`}
                             >
                                 {collapsed ? (
@@ -105,7 +116,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
                         )}
                     </div>
                     {/* Menu dropdown */}
-                    {isMenuOpen && <MenuDropPorofile />}
+                    {isMenuOpen && <MenuDropPorofile collapsed={collapsed} />}
 
                     {!collapsed && (
                         <p className="text-xs text-center text-gray-500">

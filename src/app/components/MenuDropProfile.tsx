@@ -2,7 +2,7 @@ import { CircleUser, Globe, LogOut, SunMoon } from "lucide-react";
 import React, { useState } from "react";
 import ProfileModal from "./ProfileModal";
 
-const MenuDropProfile = () => {
+const MenuDropProfile = ({ collapsed }) => {
     const [activeSubmenu, setActiveSubmenu] = useState<
         null | "language" | "theme"
     >(null);
@@ -18,7 +18,11 @@ const MenuDropProfile = () => {
 
     return (
         <>
-            <div className="absolute bottom-full mt-2 left-0 w-full bg-white border border-gray-300 rounded-lg shadow-lg z-50">
+            <div
+                className={`absolute  bottom-full mt-2 left-0  ${
+                    !collapsed ? "w-full" : "w-40"
+                } bg-white border border-gray-300 rounded-lg shadow-lg z-50`}
+            >
                 <ul className="space-y-2 p-3">
                     <li>
                         <button

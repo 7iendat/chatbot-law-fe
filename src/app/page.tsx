@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Sidebar from "@/app/components/Sidebar";
 import ChatBox from "@/app/components/Chatbot";
@@ -7,8 +9,24 @@ import { Menu, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
 export default function Home() {
+    const router = useRouter();
     const [showSidebar, setShowSidebar] = useState(false); // mobile
     const [collapseSidebar, setCollapseSidebar] = useState(false); // laptop
+    const [loading, setLoading] = useState(true);
+    // 🛡️ Kiểm tra token khi load trang
+    useEffect(() => {
+        const token = localStorage.getItem("token");
+        if (!token) {
+            router.push("/welcome");
+        } else {
+            setLoading(false); // ✅ Có token rồi mới render trang Home
+        }
+    }, [router]);
+
+    // ⛔ Loading thì chưa render gì cả
+    if (loading) {
+        return null;
+    }
 
     return (
         <div className="flex h-screen flex-col overflow-hidden md:flex-row bg-white text-black">
@@ -30,7 +48,7 @@ export default function Home() {
                             exit={{ x: -300 }}
                             transition={{ type: "tween", duration: 0.3 }}
                         >
-                            <Sidebar />
+                            <Sidebar collapsed={collapseSidebar} />
                         </motion.div>
                     </motion.div>
                 )}
