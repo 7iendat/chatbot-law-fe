@@ -4,8 +4,13 @@ import type { Metadata } from "next";
 import "@fontsource/inter/index.css";
 
 export const metadata: Metadata = {
-    title: "Chatbot Luật Việt Nam",
+    title: "JuriBot - Hỏi đáp pháp luật với AI",
     description: "Hỏi đáp pháp luật với AI",
+    icons: {
+        icon: "/favicon.ico",
+        shortcut: "/favicon.ico",
+        apple: "/favicon.ico",
+    },
 };
 
 export default function RootLayout({

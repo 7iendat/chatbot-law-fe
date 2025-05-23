@@ -1,9 +1,18 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, EyeClosed } from "lucide-react";
-import { toast, Toaster } from "react-hot-toast";
+import {
+    Eye,
+    EyeClosed,
+    Mail,
+    Lock,
+    UserPlus,
+    ArrowLeft,
+    Check,
+    X,
+} from "lucide-react";
+import { toast } from "react-hot-toast";
 
 export default function RegisterPage() {
     const router = useRouter();
@@ -14,6 +23,12 @@ export default function RegisterPage() {
     const [isLoading, setIsLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [isLoaded, setIsLoaded] = useState(false);
+    const [focusedField, setFocusedField] = useState("");
+
+    useEffect(() => {
+        setIsLoaded(true);
+    }, []);
 
     const registerApi = async (email: string, password: string) => {
         return new Promise<void>((resolve, reject) => {
@@ -31,6 +46,55 @@ export default function RegisterPage() {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         return emailRegex.test(email);
     };
+
+    const getPasswordStrength = (password: string) => {
+        if (password.length === 0) return { strength: 0, label: "", color: "" };
+
+        let strength = 0;
+        const checks = {
+            length: password.length,
+            hasUpperCase: /[A-Z]/.test(password),
+            hasLowerCase: /[a-z]/.test(password),
+            hasNumber: /[0-9]/.test(password),
+            hasSpecialChar: /[!@#$%^&*(),.?":{}|<>]/.test(password),
+        };
+
+        // Length-based scoring
+        if (checks.length >= 12) strength += 2;
+        else if (checks.length >= 8) strength += 1;
+        else if (checks.length < 6) strength = 1; // Minimum strength for short passwords
+
+        // Additional criteria
+        if (checks.hasUpperCase) strength += 1;
+        if (checks.hasLowerCase) strength += 1;
+        if (checks.hasNumber) strength += 1;
+        if (checks.hasSpecialChar) strength += 1;
+
+        // Enforce special character for higher strength levels
+        if (!checks.hasSpecialChar && strength > 3) strength = 3;
+
+        // Cap strength at 5
+        strength = Math.min(strength, 5);
+
+        // Map strength to label and color
+        const strengthMap = [
+            { strength: 0, label: "", color: "" },
+            { strength: 1, label: "Rất yếu", color: "text-red-600" },
+            { strength: 2, label: "Yếu", color: "text-red-500" },
+            { strength: 3, label: "Trung bình", color: "text-yellow-500" },
+            { strength: 4, label: "Mạnh", color: "text-green-500" },
+            { strength: 5, label: "Rất mạnh", color: "text-green-600" },
+        ];
+
+        return (
+            strengthMap.find((item) => item.strength === strength) ||
+            strengthMap[0]
+        );
+    };
+
+    const passwordMatch =
+        password && confirmPassword && password === confirmPassword;
+    const passwordStrength = getPasswordStrength(password);
 
     const handleRegister = useCallback(async () => {
         setError("");
@@ -50,7 +114,7 @@ export default function RegisterPage() {
         if (password.length < 6) {
             setError("Mật khẩu phải có ít nhất 6 ký tự.");
             toast.error("Mật khẩu phải có ít nhất 6 ký tự.", {
-                duration: 1000,
+                duration: 2000,
             });
             return;
         }
@@ -65,14 +129,14 @@ export default function RegisterPage() {
 
         try {
             await registerApi(email, password);
-            toast.success("Đăng ký thành công! 🎉", { duration: 1000 });
+            toast.success("Đăng ký thành công! 🎉", { duration: 1500 });
             setTimeout(() => {
                 router.push("/login");
             }, 1500);
         } catch (err: any) {
             setError(err.message || "Đăng ký thất bại. Vui lòng thử lại.");
             toast.error(err.message || "Đăng ký thất bại. Vui lòng thử lại.", {
-                duration: 1000,
+                duration: 2000,
             });
         } finally {
             setIsLoading(false);
@@ -80,90 +144,364 @@ export default function RegisterPage() {
     }, [email, password, confirmPassword, router]);
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-100 text-black">
-            {" "}
-            <Toaster position="top-center" reverseOrder={false} />
-            <div className="w-full max-w-md bg-white rounded-lg shadow-lg p-8 border border-gray-400/50">
-                <h2 className="text-2xl font-bold mb-6 text-center">
-                    Đăng ký tài khoản
-                </h2>
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 via-white to-blue-50 text-black p-4 relative overflow-hidden">
+            {/* Animated background elements */}
+            <div className="absolute inset-0 overflow-hidden">
+                <div className="absolute -top-40 -right-40 w-80 h-80 bg-green-100 rounded-full opacity-20 animate-pulse"></div>
+                <div
+                    className="absolute -bottom-40 -left-40 w-96 h-96 bg-blue-100 rounded-full opacity-20 animate-pulse"
+                    style={{ animationDelay: "1s" }}
+                ></div>
+                <div
+                    className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-purple-100 rounded-full opacity-10 animate-pulse"
+                    style={{ animationDelay: "2s" }}
+                ></div>
+            </div>
 
-                {error && <p className="text-red-600 mb-4 text-sm">{error}</p>}
+            {/* Back button */}
+            <button
+                onClick={() => router.push("/")}
+                className={`absolute top-6 left-6 p-3 bg-white/80 backdrop-blur-sm rounded-full shadow-lg hover:shadow-xl hover:bg-white transition-all duration-300 transform hover:scale-110 z-20 ${
+                    isLoaded
+                        ? "translate-x-0 opacity-100"
+                        : "-translate-x-4 opacity-0"
+                }`}
+                style={{ transitionDelay: "200ms" }}
+            >
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
+            </button>
 
-                <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => {
-                        setEmail(e.target.value);
-                        if (error) setError("");
-                    }}
-                    placeholder="Email"
-                    className="w-full p-3 mb-4 border border-gray-300 rounded outline-none focus:ring-2 focus:ring-blue-400"
-                />
-
-                <div className="relative mb-4">
-                    <input
-                        type={showPassword ? "text" : "password"}
-                        value={password}
-                        onChange={(e) => {
-                            setPassword(e.target.value);
-                            if (error) setError("");
-                        }}
-                        placeholder="Mật khẩu"
-                        className="w-full p-3 border border-gray-300 rounded outline-none pr-12 focus:ring-2 focus:ring-blue-400"
-                    />
-                    <button
-                        type="button"
-                        onClick={() => setShowPassword((prev) => !prev)}
-                        className="absolute top-1/2 right-3 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
-                    >
-                        {showPassword ? <Eye /> : <EyeClosed />}
-                    </button>
+            {/* Main register card */}
+            <div
+                className={`w-full max-w-md bg-white/90 backdrop-blur-sm border border-gray-200/50 rounded-2xl shadow-2xl p-8 relative z-10 transform transition-all duration-1000 ease-out ${
+                    isLoaded
+                        ? "translate-y-0 opacity-100 scale-100"
+                        : "translate-y-8 opacity-0 scale-95"
+                }`}
+            >
+                {/* Logo/Icon */}
+                <div
+                    className={`text-center mb-8 transform transition-all duration-1000 ease-out ${
+                        isLoaded
+                            ? "translate-y-0 opacity-100"
+                            : "translate-y-4 opacity-0"
+                    }`}
+                    style={{ transitionDelay: "300ms" }}
+                >
+                    <div className="w-16 h-16 mx-auto bg-gradient-to-r from-green-500 to-blue-600 rounded-full flex items-center justify-center shadow-lg mb-4">
+                        <UserPlus className="w-8 h-8 text-white" />
+                    </div>
+                    <h2 className="text-3xl font-bold bg-gradient-to-r from-green-600 to-blue-600 bg-clip-text text-transparent">
+                        Đăng ký tài khoản
+                    </h2>
+                    <p className="text-gray-600 mt-2">
+                        Tạo tài khoản Angel AI của bạn
+                    </p>
                 </div>
 
-                <div className="relative mb-4">
-                    <input
-                        type={showConfirmPassword ? "text" : "password"}
-                        value={confirmPassword}
-                        onChange={(e) => {
-                            setConfirmPassword(e.target.value);
-                            if (error) setError("");
-                        }}
-                        placeholder="Nhập lại mật khẩu"
-                        className="w-full p-3 border border-gray-300 rounded outline-none pr-12 focus:ring-2 focus:ring-blue-400"
-                    />
-                    <button
-                        type="button"
-                        onClick={() => setShowConfirmPassword((prev) => !prev)}
-                        className="absolute top-1/2 right-3 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
-                    >
-                        {showConfirmPassword ? <Eye /> : <EyeClosed />}
-                    </button>
+                {/* Error message */}
+                {error && (
+                    <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm animate-shake">
+                        {error}
+                    </div>
+                )}
+
+                {/* Email input */}
+                <div
+                    className={`mb-6 transform transition-all duration-1000 ease-out ${
+                        isLoaded
+                            ? "translate-y-0 opacity-100"
+                            : "translate-y-4 opacity-0"
+                    }`}
+                    style={{ transitionDelay: "500ms" }}
+                >
+                    <div className="relative">
+                        <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+                            <Mail className="w-5 h-5" />
+                        </div>
+                        <input
+                            type="email"
+                            value={email}
+                            onChange={(e) => {
+                                setEmail(e.target.value);
+                                if (error) setError("");
+                            }}
+                            onFocus={() => setFocusedField("email")}
+                            onBlur={() => setFocusedField("")}
+                            placeholder="Email"
+                            className={`w-full p-4 pl-12 border rounded-xl outline-none transition-all duration-300 bg-gray-50/50 ${
+                                focusedField === "email"
+                                    ? "border-green-400 bg-white shadow-lg ring-4 ring-green-100 transform scale-[1.02]"
+                                    : "border-gray-300 hover:border-gray-400"
+                            }`}
+                        />
+                        {email && isValidEmail(email) && (
+                            <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                                <Check className="w-5 h-5 text-green-500" />
+                            </div>
+                        )}
+                    </div>
                 </div>
 
+                {/* Password input */}
+                <div
+                    className={`mb-4 transform transition-all duration-1000 ease-out ${
+                        isLoaded
+                            ? "translate-y-0 opacity-100"
+                            : "translate-y-4 opacity-0"
+                    }`}
+                    style={{ transitionDelay: "600ms" }}
+                >
+                    <div className="relative">
+                        <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+                            <Lock className="w-5 h-5" />
+                        </div>
+                        <input
+                            type={showPassword ? "text" : "password"}
+                            value={password}
+                            onChange={(e) => {
+                                setPassword(e.target.value);
+                                if (error) setError("");
+                            }}
+                            onFocus={() => setFocusedField("password")}
+                            onBlur={() => setFocusedField("")}
+                            placeholder="Mật khẩu"
+                            className={`w-full p-4 pl-12 pr-12 border rounded-xl outline-none transition-all duration-300 bg-gray-50/50 ${
+                                focusedField === "password"
+                                    ? "border-green-400 bg-white shadow-lg ring-4 ring-green-100 transform scale-[1.02]"
+                                    : "border-gray-300 hover:border-gray-400"
+                            }`}
+                        />
+                        <button
+                            type="button"
+                            onClick={() => setShowPassword((prev) => !prev)}
+                            className="absolute top-1/2 right-3 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none cursor-pointer transition-all duration-200 hover:scale-110"
+                        >
+                            {showPassword ? (
+                                <Eye className="w-5 h-5" />
+                            ) : (
+                                <EyeClosed className="w-5 h-5" />
+                            )}
+                        </button>
+                    </div>
+
+                    {/* Password strength indicator */}
+                    {password && (
+                        <div className="mt-2 px-1">
+                            <div className="flex items-center justify-between mb-1">
+                                <span className="text-xs text-gray-600">
+                                    Độ mạnh mật khẩu:
+                                </span>
+                                <span
+                                    className={`text-xs font-semibold ${passwordStrength.color}`}
+                                >
+                                    {passwordStrength.label}
+                                </span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                                <div
+                                    className={`h-2 rounded-full transition-all duration-300 ${
+                                        passwordStrength.strength === 0
+                                            ? "bg-gray-200 w-0"
+                                            : passwordStrength.strength === 1
+                                            ? "bg-red-600 w-1/5"
+                                            : passwordStrength.strength === 2
+                                            ? "bg-red-500 w-2/5"
+                                            : passwordStrength.strength === 3
+                                            ? "bg-yellow-500 w-3/5"
+                                            : passwordStrength.strength === 4
+                                            ? "bg-green-500 w-4/5"
+                                            : passwordStrength.strength === 5
+                                            ? "bg-green-600 w-full"
+                                            : "w-0"
+                                    }`}
+                                ></div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Confirm Password input */}
+                <div
+                    className={`mb-6 transform transition-all duration-1000 ease-out ${
+                        isLoaded
+                            ? "translate-y-0 opacity-100"
+                            : "translate-y-4 opacity-0"
+                    }`}
+                    style={{ transitionDelay: "700ms" }}
+                >
+                    <div className="relative">
+                        <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+                            <Lock className="w-5 h-5" />
+                        </div>
+                        <input
+                            type={showConfirmPassword ? "text" : "password"}
+                            value={confirmPassword}
+                            onChange={(e) => {
+                                setConfirmPassword(e.target.value);
+                                if (error) setError("");
+                            }}
+                            onFocus={() => setFocusedField("confirmPassword")}
+                            onBlur={() => setFocusedField("")}
+                            placeholder="Nhập lại mật khẩu"
+                            className={`w-full p-4 pl-12 pr-12 border rounded-xl outline-none transition-all duration-300 bg-gray-50/50 ${
+                                focusedField === "confirmPassword"
+                                    ? "border-green-400 bg-white shadow-lg ring-4 ring-green-100 transform scale-[1.02]"
+                                    : "border-gray-300 hover:border-gray-400"
+                            }`}
+                        />
+                        <button
+                            type="button"
+                            onClick={() =>
+                                setShowConfirmPassword((prev) => !prev)
+                            }
+                            className="absolute top-1/2 right-3 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none cursor-pointer transition-all duration-200 hover:scale-110"
+                        >
+                            {showConfirmPassword ? (
+                                <Eye className="w-5 h-5" />
+                            ) : (
+                                <EyeClosed className="w-5 h-5" />
+                            )}
+                        </button>
+
+                        {/* Password match indicator */}
+                        {confirmPassword && (
+                            <div className="absolute -right-8 top-1/2 transform -translate-y-1/2">
+                                {passwordMatch ? (
+                                    <Check className="w-5 h-5 text-green-500" />
+                                ) : (
+                                    <X className="w-5 h-5 text-red-500" />
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Register button */}
                 <button
                     onClick={handleRegister}
                     type="button"
                     disabled={isLoading}
-                    className={`w-full py-2 rounded transition text-white cursor-pointer ${
+                    className={`w-full py-4 rounded-xl font-semibold transition-all duration-300 transform cursor-pointer ${
                         isLoading
-                            ? "bg-gray-400 cursor-not-allowed"
-                            : "bg-blue-600 hover:bg-blue-700"
+                            ? "bg-gray-400 cursor-not-allowed text-white"
+                            : "bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]"
+                    } ${
+                        isLoaded
+                            ? "translate-y-0 opacity-100"
+                            : "translate-y-4 opacity-0"
                     }`}
+                    style={{ transitionDelay: "800ms" }}
                 >
-                    {isLoading ? "Đang đăng ký..." : "Đăng ký"}
+                    {isLoading ? (
+                        <div className="flex items-center justify-center gap-2">
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            Đang đăng ký...
+                        </div>
+                    ) : (
+                        "Đăng ký"
+                    )}
                 </button>
 
-                <p className="mt-4 text-sm text-center">
+                {/* Login link */}
+                <p
+                    className={`mt-6 text-sm text-center text-gray-600 transform transition-all duration-1000 ease-out ${
+                        isLoaded
+                            ? "translate-y-0 opacity-100"
+                            : "translate-y-4 opacity-0"
+                    }`}
+                    style={{ transitionDelay: "900ms" }}
+                >
                     Đã có tài khoản?{" "}
                     <span
                         onClick={() => router.push("/login")}
-                        className="text-blue-600 hover:underline cursor-pointer"
+                        className="text-green-600 hover:text-blue-600 hover:underline cursor-pointer font-semibold transition-all duration-200 hover:scale-105 inline-block"
                     >
                         Đăng nhập
                     </span>
                 </p>
+
+                {/* Password requirements */}
+                <div
+                    className={`mt-6 p-4 bg-green-50 rounded-lg border border-green-200 transform transition-all duration-1000 ease-out ${
+                        isLoaded
+                            ? "translate-y-0 opacity-100"
+                            : "translate-y-4 opacity-0"
+                    }`}
+                    style={{ transitionDelay: "1000ms" }}
+                >
+                    <p className="text-xs text-green-600 font-semibold mb-2">
+                        Yêu cầu mật khẩu:
+                    </p>
+                    <ul className="text-xs text-green-700 space-y-1">
+                        <li className="flex items-center gap-2">
+                            <div
+                                className={`w-2 h-2 rounded-full ${
+                                    password.match(/[!@#$%^&*(),.?":{}|<>]/)
+                                        ? "bg-green-500"
+                                        : "bg-gray-300"
+                                }`}
+                            ></div>
+                            Chứa kí tự đặc biệt (khuyến nghị)
+                        </li>
+                        <li className="flex items-center gap-2">
+                            <div
+                                className={`w-2 h-2 rounded-full ${
+                                    password.length >= 8
+                                        ? "bg-green-500"
+                                        : "bg-gray-300"
+                                }`}
+                            ></div>
+                            Từ 8 ký tự trở lên (khuyến nghị)
+                        </li>
+                        <li className="flex items-center gap-2">
+                            <div
+                                className={`w-2 h-2 rounded-full ${
+                                    /[A-Z]/.test(password) &&
+                                    /[0-9]/.test(password)
+                                        ? "bg-green-500"
+                                        : "bg-gray-300"
+                                }`}
+                            ></div>
+                            Chứa chữ hoa và số (khuyến nghị)
+                        </li>
+                    </ul>
+                </div>
             </div>
+
+            {/* Floating particles */}
+            <div className="absolute inset-0 pointer-events-none">
+                <div
+                    className="absolute top-1/4 left-1/4 w-2 h-2 bg-green-300 rounded-full opacity-40 animate-bounce"
+                    style={{ animationDelay: "0s", animationDuration: "3s" }}
+                ></div>
+                <div
+                    className="absolute top-3/4 right-1/4 w-2 h-2 bg-blue-300 rounded-full opacity-40 animate-bounce"
+                    style={{ animationDelay: "1s", animationDuration: "4s" }}
+                ></div>
+                <div
+                    className="absolute top-1/2 right-1/3 w-1 h-1 bg-purple-300 rounded-full opacity-40 animate-bounce"
+                    style={{ animationDelay: "2s", animationDuration: "5s" }}
+                ></div>
+            </div>
+
+            <style jsx>{`
+                @keyframes shake {
+                    0%,
+                    100% {
+                        transform: translateX(0);
+                    }
+                    25% {
+                        transform: translateX(-5px);
+                    }
+                    75% {
+                        transform: translateX(5px);
+                    }
+                }
+                .animate-shake {
+                    animation: shake 0.5s ease-in-out;
+                }
+            `}</style>
         </div>
     );
 }

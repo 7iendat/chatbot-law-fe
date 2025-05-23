@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Sidebar from "@/app/components/Sidebar";
 import ChatBox from "@/app/components/Chatbot";
-import { Menu, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { Menu, ArrowRightFromLine, ArrowLeftFromLine } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
 export default function Home() {
@@ -63,12 +63,12 @@ export default function Home() {
                 <div className="flex justify-end p-2">
                     <button
                         onClick={() => setCollapseSidebar(!collapseSidebar)}
-                        className="p-1 hover:bg-gray-200 rounded"
+                        className="p-1 hover:bg-gray-200 rounded cursor-pointer"
                     >
                         {collapseSidebar ? (
-                            <ChevronsRight size={20} />
+                            <ArrowRightFromLine size={24} />
                         ) : (
-                            <ChevronsLeft size={20} />
+                            <ArrowLeftFromLine size={24} />
                         )}
                     </button>
                 </div>
