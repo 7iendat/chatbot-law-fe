@@ -1,6 +1,9 @@
-import { CircleUser, Globe, LogOut, SunMoon } from "lucide-react";
+import { CircleUser, Globe, KeyRound, LogOut, SunMoon } from "lucide-react";
 import React, { useState, useRef, useEffect } from "react";
 import ProfileModal from "./ProfileModal";
+import { authApi } from "../services/authApis";
+import { toast } from "react-hot-toast";
+import ChangePasswordModal from "./ChangePasswordModal";
 
 const MenuDropProfile = ({ collapsed }: any) => {
     const [activeSubmenu, setActiveSubmenu] = useState<
@@ -9,6 +12,22 @@ const MenuDropProfile = ({ collapsed }: any) => {
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [isVisible, setIsVisible] = useState(false);
     const submenuTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const [showChangePasswordModal, setShowChangePasswordModal] =
+        useState(false);
+    const handleChangePasswordClick = () => {
+        setShowChangePasswordModal(true);
+    };
+    const handleLogout = async () => {
+        try {
+            const res = await authApi.logout();
+            console.log(res);
+            if (res.message) localStorage.removeItem("accessToken");
+            toast.success("Đăng xuất thành công");
+            window.location.href = "/login";
+        } catch (error) {
+            toast.error("Đăng xuất không thành công");
+        }
+    };
 
     // Animate in when component mounts
     useEffect(() => {
@@ -168,7 +187,24 @@ const MenuDropProfile = ({ collapsed }: any) => {
                     </li>
 
                     <li>
-                        <button className="w-full text-left text-sm text-gray-700 hover:bg-gradient-to-r hover:from-red-50 hover:to-pink-50 hover:text-red-600 rounded-lg p-3 cursor-pointer transition-all duration-200 ease-in-out transform hover:scale-[1.02] group">
+                        <button
+                            className="w-full text-left text-sm text-gray-700 hover:bg-gradient-to-r hover:from-amber-50 hover:to-orange-50 hover:text-gray-900 rounded-lg p-3 cursor-pointer transition-all duration-200 ease-in-out transform hover:scale-[1.02] group"
+                            onClick={handleChangePasswordClick}
+                        >
+                            <div className="flex items-center gap-3">
+                                <KeyRound className="w-4 h-4 transition-transform duration-200 group-hover:rotate-12" />
+                                <span className="font-medium">
+                                    Change Password
+                                </span>
+                            </div>
+                        </button>
+                    </li>
+
+                    <li>
+                        <button
+                            onClick={handleLogout}
+                            className="w-full text-left text-sm text-gray-700 hover:bg-gradient-to-r hover:from-red-50 hover:to-pink-50 hover:text-red-600 rounded-lg p-3 cursor-pointer transition-all duration-200 ease-in-out transform hover:scale-[1.02] group"
+                        >
                             <div className="flex items-center gap-3">
                                 <LogOut className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-1" />
                                 <span className="font-medium">Logout</span>
@@ -180,6 +216,11 @@ const MenuDropProfile = ({ collapsed }: any) => {
             <ProfileModal
                 isOpen={showProfileModal}
                 onClose={() => setShowProfileModal(false)}
+            />
+
+            <ChangePasswordModal
+                isOpen={showChangePasswordModal}
+                onClose={() => setShowChangePasswordModal(false)}
             />
         </>
     );

@@ -160,7 +160,7 @@ export default function RegisterPage() {
 
             {/* Back button */}
             <button
-                onClick={() => router.push("/")}
+                onClick={() => router.back()}
                 className={`absolute top-6 left-6 p-3 bg-white/80 backdrop-blur-sm rounded-full shadow-lg hover:shadow-xl hover:bg-white transition-all duration-300 transform hover:scale-110 z-20 ${
                     isLoaded
                         ? "translate-x-0 opacity-100"

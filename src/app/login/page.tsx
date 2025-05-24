@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, EyeClosed, Mail, Lock, ArrowLeft } from "lucide-react";
+import { Eye, EyeClosed, Mail, Lock, ArrowLeft, Shield } from "lucide-react";
 import { toast } from "react-hot-toast";
+import { authApi } from "../services/authApis";
 
 export default function LoginPage() {
     const router = useRouter();
@@ -15,18 +16,51 @@ export default function LoginPage() {
     const [isLoaded, setIsLoaded] = useState(false);
     const [focusedField, setFocusedField] = useState("");
 
+    // Verification states
+    const [showVerification, setShowVerification] = useState(false);
+    const [verificationCode, setVerificationCode] = useState([
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+    ]);
+    const [isVerifying, setIsVerifying] = useState(false);
+    const [verificationError, setVerificationError] = useState("");
+    const [resendTimer, setResendTimer] = useState(0);
+
+    const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
     useEffect(() => {
         setIsLoaded(true);
     }, []);
 
-    const loginApi = async (email: string, password: string) => {
-        return new Promise<{ token: string }>((resolve, reject) => {
+    // Timer for resend code
+    useEffect(() => {
+        if (resendTimer > 0) {
+            const timer = setTimeout(
+                () => setResendTimer(resendTimer - 1),
+                1000
+            );
+            return () => clearTimeout(timer);
+        }
+    }, [resendTimer]);
+
+    const verifyCodeApi = async (code: string) => {
+        try {
+            const res = await authApi.verifyCode(email, code);
+            console.log("res", res);
+            return res;
+        } catch (error: any) {
+            throw new Error("Mã xác thực không đúng.");
+        }
+    };
+
+    const sendVerificationCodeApi = async (email: string) => {
+        return new Promise<void>((resolve) => {
             setTimeout(() => {
-                if (email === "admin@gmail.com" && password === "123456") {
-                    resolve({ token: "fake-jwt-token" });
-                } else {
-                    reject(new Error("Sai email hoặc mật khẩu."));
-                }
+                resolve();
             }, 1000);
         });
     };
@@ -55,26 +89,282 @@ export default function LoginPage() {
         setError("");
 
         try {
-            const { token } = await loginApi(email, password);
-            localStorage.setItem("token", token);
+            const res = await authApi.login(email, password);
+
+            console.log("res", res);
+            if (res.message) {
+                setShowVerification(true);
+                setResendTimer(60);
+                toast.success(res.message, { duration: 2000 });
+                return;
+            }
+            // if (needsVerification) {
+            //     await sendVerificationCodeApi(email);
+            //     setShowVerification(true);
+            //     setResendTimer(60);
+            //     toast.success("Mã xác thực đã được gửi đến email của bạn!", {
+            //         duration: 2000,
+            //     });
+            // }
+        } catch (error: any) {
+            if (error.response?.data?.detail) {
+                setError(
+                    error.response.data.detail ||
+                        "Có lỗi xảy ra. Vui lòng thử lại."
+                );
+            } else {
+                setError(error.message || "Có lỗi xảy ra. Vui lòng thử lại.");
+            }
+            toast.error(
+                error.message ||
+                    error.response?.data?.detail ||
+                    "Có lỗi xảy ra. Vui lòng thử lại.",
+                {
+                    duration: 2000,
+                }
+            );
+        } finally {
+            setIsLoading(false);
+        }
+    }, [email, password]);
+
+    const handleVerificationInput = (index: number, value: string) => {
+        if (value.length > 1) return;
+
+        const newCode = [...verificationCode];
+        newCode[index] = value;
+        setVerificationCode(newCode);
+        setVerificationError("");
+
+        // Auto-focus next input
+        if (value && index < 5) {
+            inputRefs.current[index + 1]?.focus();
+        }
+
+        // Auto-verify when all digits are entered
+        if (
+            newCode.every((digit) => digit !== "") &&
+            newCode.join("").length === 6
+        ) {
+            handleVerifyCode(newCode.join(""));
+        }
+    };
+
+    const handleVerificationKeyDown = (
+        index: number,
+        e: React.KeyboardEvent
+    ) => {
+        if (e.key === "Backspace" && !verificationCode[index] && index > 0) {
+            inputRefs.current[index - 1]?.focus();
+        }
+    };
+
+    const handleVerifyCode = async (code?: string) => {
+        const codeToVerify = code || verificationCode.join("");
+
+        if (codeToVerify.length !== 6) {
+            setVerificationError("Vui lòng nhập đầy đủ 6 số.");
+            return;
+        }
+
+        setIsVerifying(true);
+        setVerificationError("");
+
+        try {
+            const { access_token } = await verifyCodeApi(codeToVerify);
+            localStorage.setItem("accessToken", access_token);
             toast.success("Đăng nhập thành công!", { duration: 1500 });
             setTimeout(() => {
                 router.push("/");
             }, 1500);
         } catch (err: any) {
-            setError(err.message || "Có lỗi xảy ra. Vui lòng thử lại.");
-            toast.error(err.message || "Có lỗi xảy ra. Vui lòng thử lại.", {
+            setVerificationError(err.message || "Mã xác thực không đúng.");
+            toast.error(err.message || "Mã xác thực không đúng.", {
                 duration: 2000,
             });
+            // Clear code on error
+            setVerificationCode(["", "", "", "", "", ""]);
+            inputRefs.current[0]?.focus();
         } finally {
-            setIsLoading(false);
+            setIsVerifying(false);
         }
-    }, [email, password, router]);
+    };
+
+    const handleResendCode = async () => {
+        if (resendTimer > 0) return;
+
+        try {
+            await sendVerificationCodeApi(email);
+            setResendTimer(60);
+            toast.success("Mã xác thực mới đã được gửi!", { duration: 2000 });
+        } catch (err) {
+            toast.error("Không thể gửi lại mã. Vui lòng thử lại.", {
+                duration: 2000,
+            });
+        }
+    };
+
+    const handleBackToLogin = () => {
+        setShowVerification(false);
+        setVerificationCode(["", "", "", "", "", ""]);
+        setVerificationError("");
+        setResendTimer(0);
+    };
+
+    if (showVerification) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-purple-50 text-black p-4 relative overflow-hidden">
+                {/* Animated background elements */}
+                <div className="absolute inset-0 overflow-hidden">
+                    <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-100 rounded-full opacity-20 animate-pulse"></div>
+                    <div
+                        className="absolute -bottom-40 -left-40 w-96 h-96 bg-purple-100 rounded-full opacity-20 animate-pulse"
+                        style={{ animationDelay: "1s" }}
+                    ></div>
+                    <div
+                        className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-green-100 rounded-full opacity-10 animate-pulse"
+                        style={{ animationDelay: "2s" }}
+                    ></div>
+                </div>
+
+                {/* Back button */}
+                <button
+                    onClick={handleBackToLogin}
+                    className="absolute top-6 left-6 p-3 bg-white/80 backdrop-blur-sm cursor-pointer rounded-full shadow-lg hover:shadow-xl hover:bg-white transition-all duration-300 transform hover:scale-110 z-20"
+                >
+                    <ArrowLeft className="w-5 h-5 text-gray-600" />
+                </button>
+
+                {/* Verification card */}
+                <div className="w-full max-w-md bg-white/90 backdrop-blur-sm border border-gray-200/50 rounded-2xl shadow-2xl p-8 relative z-10">
+                    {/* Header */}
+                    <div className="text-center mb-8">
+                        <div className="w-16 h-16 mx-auto bg-gradient-to-r from-green-500 to-blue-600 rounded-full flex items-center justify-center shadow-lg mb-4">
+                            <Shield className="w-8 h-8 text-white" />
+                        </div>
+                        <h2 className="text-3xl font-bold bg-gradient-to-r from-green-600 to-blue-600 bg-clip-text text-transparent">
+                            Xác thực
+                        </h2>
+                        <p className="text-gray-600 mt-2">
+                            Nhập mã 6 số được gửi đến
+                        </p>
+                        <p className="text-blue-600 font-semibold text-sm">
+                            {email}
+                        </p>
+                    </div>
+
+                    {/* Error message */}
+                    {verificationError && (
+                        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm animate-shake">
+                            {verificationError}
+                        </div>
+                    )}
+
+                    {/* Code inputs */}
+                    <div className="mb-6">
+                        <div className="flex gap-3 justify-center">
+                            {verificationCode.map((digit, index) => (
+                                <input
+                                    key={index}
+                                    ref={(el: any) =>
+                                        (inputRefs.current[index] = el)
+                                    }
+                                    type="text"
+                                    inputMode="numeric"
+                                    maxLength={1}
+                                    value={digit}
+                                    onChange={(e) =>
+                                        handleVerificationInput(
+                                            index,
+                                            e.target.value.replace(/\D/g, "")
+                                        )
+                                    }
+                                    onKeyDown={(e) =>
+                                        handleVerificationKeyDown(index, e)
+                                    }
+                                    className="w-12 h-12 text-center text-xl font-bold border-2 rounded-lg outline-none transition-all duration-300 bg-gray-50/50 focus:border-blue-400 focus:bg-white focus:shadow-lg focus:ring-4 focus:ring-blue-100 hover:border-gray-400"
+                                    disabled={isVerifying}
+                                />
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Verify button */}
+                    <button
+                        onClick={() => handleVerifyCode()}
+                        disabled={
+                            isVerifying ||
+                            verificationCode.some((digit) => digit === "")
+                        }
+                        className={`w-full py-4 rounded-xl font-semibold transition-all duration-300 transform cursor-pointer mb-4 ${
+                            isVerifying ||
+                            verificationCode.some((digit) => digit === "")
+                                ? "bg-gray-400 cursor-not-allowed text-white"
+                                : "bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]"
+                        }`}
+                    >
+                        {isVerifying ? (
+                            <div className="flex items-center justify-center gap-2">
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                Đang xác thực...
+                            </div>
+                        ) : (
+                            "Xác thực"
+                        )}
+                    </button>
+
+                    {/* Resend code */}
+                    <div className="text-center">
+                        <p className="text-sm text-gray-600 mb-2">
+                            Không nhận được mã?
+                        </p>
+                        <button
+                            onClick={handleResendCode}
+                            disabled={resendTimer > 0}
+                            className={`text-sm font-semibold transition-all duration-200 ${
+                                resendTimer > 0
+                                    ? "text-gray-400 cursor-not-allowed"
+                                    : "text-blue-600 hover:text-purple-600 hover:underline cursor-pointer hover:scale-105"
+                            }`}
+                        >
+                            {resendTimer > 0
+                                ? `Gửi lại sau ${resendTimer}s`
+                                : "Gửi lại mã"}
+                        </button>
+                    </div>
+
+                    {/* Demo code */}
+                    <div className="mt-6 p-4 bg-green-50 rounded-lg border border-green-200">
+                        <p className="text-xs text-green-600 font-semibold mb-1">
+                            Demo Code:
+                        </p>
+                        <p className="text-xs text-green-700">123456</p>
+                    </div>
+                </div>
+
+                <style jsx>{`
+                    @keyframes shake {
+                        0%,
+                        100% {
+                            transform: translateX(0);
+                        }
+                        25% {
+                            transform: translateX(-5px);
+                        }
+                        75% {
+                            transform: translateX(5px);
+                        }
+                    }
+                    .animate-shake {
+                        animation: shake 0.5s ease-in-out;
+                    }
+                `}</style>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-purple-50 text-black p-4 relative overflow-hidden">
-            {/* <Toaster position="top-center" reverseOrder={false} /> */}
-
             {/* Animated background elements */}
             <div className="absolute inset-0 overflow-hidden">
                 <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-100 rounded-full opacity-20 animate-pulse"></div>
@@ -90,8 +380,8 @@ export default function LoginPage() {
 
             {/* Back button */}
             <button
-                onClick={() => router.push("/")}
-                className={`absolute top-6 left-6 p-3 bg-white/80 backdrop-blur-sm  cursor-pointer rounded-full shadow-lg hover:shadow-xl hover:bg-white transition-all duration-300 transform hover:scale-110 z-20 ${
+                onClick={() => router.back()}
+                className={`absolute top-6 left-6 p-3 bg-white/80 backdrop-blur-sm rounded-full shadow-lg hover:shadow-xl hover:bg-white transition-all duration-300 transform hover:scale-110 z-20 ${
                     isLoaded
                         ? "translate-x-0 opacity-100"
                         : "-translate-x-4 opacity-0"
@@ -221,6 +511,22 @@ export default function LoginPage() {
                             )}
                         </button>
                     </div>
+
+                    <p
+                        className={`mt-2 text-sm text-right pr-1 text-gray-600 transform transition-all duration-1000 ease-out ${
+                            isLoaded
+                                ? "translate-y-0 opacity-100"
+                                : "translate-y-4 opacity-0"
+                        }`}
+                        style={{ transitionDelay: "800ms" }}
+                    >
+                        <span
+                            onClick={() => router.push("/forgot-password")}
+                            className="text-blue-600 hover:text-purple-600 hover:underline cursor-pointer font-semibold transition-all duration-200 hover:scale-105 inline-block"
+                        >
+                            Quên mật khẩu?
+                        </span>
+                    </p>
                 </div>
 
                 {/* Login button */}
@@ -266,24 +572,6 @@ export default function LoginPage() {
                         Đăng ký ngay!
                     </span>
                 </p>
-
-                {/* Demo credentials */}
-                <div
-                    className={`mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200 transform transition-all duration-1000 ease-out ${
-                        isLoaded
-                            ? "translate-y-0 opacity-100"
-                            : "translate-y-4 opacity-0"
-                    }`}
-                    style={{ transitionDelay: "900ms" }}
-                >
-                    <p className="text-xs text-blue-600 font-semibold mb-1">
-                        Demo Account:
-                    </p>
-                    <p className="text-xs text-blue-700">
-                        Email: admin@gmail.com
-                    </p>
-                    <p className="text-xs text-blue-700">Password: 123456</p>
-                </div>
             </div>
 
             {/* Floating particles */}

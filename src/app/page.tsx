@@ -7,6 +7,7 @@ import Sidebar from "@/app/components/Sidebar";
 import ChatBox from "@/app/components/Chatbot";
 import { Menu, ArrowRightFromLine, ArrowLeftFromLine } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import { Toaster } from "react-hot-toast";
 
 export default function Home() {
     const router = useRouter();
@@ -15,7 +16,7 @@ export default function Home() {
     const [loading, setLoading] = useState(true);
     // 🛡️ Kiểm tra token khi load trang
     useEffect(() => {
-        const token = localStorage.getItem("token");
+        const token = localStorage.getItem("accessToken");
         if (!token) {
             router.push("/welcome");
         } else {
@@ -90,6 +91,8 @@ export default function Home() {
 
                 <ChatBox />
             </div>
+
+            <Toaster />
         </div>
     );
 }

@@ -210,15 +210,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                     {/* Action buttons */}
                     <div className="mt-6 flex gap-3">
                         <button
-                            className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-xl font-medium hover:from-blue-700 hover:to-purple-700 transition-all duration-200 transform hover:scale-105 hover:shadow-lg"
-                            onClick={() => {
-                                console.log("Edit profile clicked");
-                            }}
-                        >
-                            Chỉnh sửa
-                        </button>
-                        <button
-                            className="flex-1 bg-gray-100 text-gray-700 py-3 px-4 rounded-xl font-medium hover:bg-gray-200 transition-all duration-200 transform hover:scale-105"
+                            className="flex-1 bg-gray-100 text-gray-700 py-3 px-4 rounded-xl font-medium hover:bg-gray-200 transition-all duration-200 transform hover:scale-105 cursor-pointer"
                             onClick={onClose}
                         >
                             Đóng
