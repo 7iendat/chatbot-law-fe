@@ -3,9 +3,8 @@ import { api } from "../libs/axios";
 // Types for API responses
 export interface LoginResponse {
     needsVerification?: boolean;
-    access_token?: string;
+    accessToken?: string;
     user?: {
-        id: string;
         email: string;
         username?: string;
         role?: string;
@@ -14,12 +13,12 @@ export interface LoginResponse {
 }
 
 export interface VerifyCodeResponse {
-    access_token: string;
+    accessToken: string;
     user: {
-        id: string;
         email: string;
         username?: string;
         role?: string;
+        avatar_url?: string;
     };
     message?: string;
 }
@@ -82,6 +81,58 @@ export const authApi = {
         );
     },
 
+    validateToken: async (
+        token: string
+    ): Promise<{ valid: boolean; message?: string }> => {
+        try {
+            const response = await api.post<{
+                valid: boolean;
+                message?: string;
+            }>("/user/validate-token", {
+                token: token,
+            });
+            return response;
+        } catch (error: any) {
+            console.error("Token validation error:", error);
+
+            // Handle different error status codes
+            if (error.response?.status === 422) {
+                throw new Error("Invalid request format");
+            }
+            if (error.response?.status === 401) {
+                return {
+                    valid: false,
+                    message: error.response.data.detail || "Token invalid",
+                };
+            }
+            if (error.response?.status === 400) {
+                throw new Error(error.response.data.detail || "Bad request");
+            }
+
+            // Handle other potential errors
+            throw new Error(error.message || "Unknown error occurred");
+        }
+    },
+
+    resentVerificationCode: async (
+        email: string
+    ): Promise<{ message: string }> => {
+        try {
+            const response = await api.post<{ message: string }>(
+                "/user/resent-verification-code",
+                { email }
+            );
+            return response;
+        } catch (error: any) {
+            // Handle HTTPException from server
+            if (error.response?.status === 500) {
+                throw new Error(`${error.response.data.detail}`);
+            }
+            // Handle other potential errors
+            throw new Error(`${error.message || "Unknown error"}`);
+        }
+    },
+
     // // Send verification code to email
     // sendVerificationCode: async (
     //     email: string
@@ -96,15 +147,24 @@ export const authApi = {
 
     // Register new user
     register: async (
-        email: string,
+        username: string,
         password: string,
-        username?: string
+        email: string
     ): Promise<RegisterResponse> => {
-        return await api.post<RegisterResponse>("/user/register", {
-            email,
-            password,
-            username,
-        });
+        try {
+            const res = await api.post<RegisterResponse>("/user/register", {
+                username,
+                password,
+                email,
+            });
+            return res;
+        } catch (error: any) {
+            throw new Error(
+                `Registration failed: ${
+                    error.response?.data?.detail || error.message
+                }`
+            );
+        }
     },
 
     // Refresh token

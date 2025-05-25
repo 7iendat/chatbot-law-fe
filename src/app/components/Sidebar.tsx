@@ -11,6 +11,7 @@ import {
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import MenuDropProfile from "./MenuDropProfile";
+import { useAuth } from "../contexts/AuthContext";
 
 interface SidebarProps {
     collapsed?: boolean;
@@ -29,6 +30,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
     const [hoveredChat, setHoveredChat] = useState<number | null>(null);
     const [isHoveringLogo, setIsHoveringLogo] = useState(false);
     const [isTransitioning, setIsTransitioning] = useState(false);
+    const { user } = useAuth();
 
     // Mock chat history data
     const [chatHistory] = useState<ChatHistory[]>([
@@ -348,9 +350,14 @@ export default function Sidebar({ collapsed }: SidebarProps) {
                         <Image
                             width={collapsed ? 28 : 32}
                             height={collapsed ? 28 : 32}
-                            src="/profile.png"
+                            src={user?.avatar_url || "/profile.png"}
                             alt="User Avatar"
                             className="rounded-full border-2 border-gray-200 group-hover:border-blue-300 transition-all duration-300"
+                            unoptimized={user?.avatar_url ? true : false} // Disable optimization for external URLs
+                            onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.src = "/profile.png"; // Fallback to local image on error
+                            }}
                         />
                         <div
                             className={`absolute -bottom-1 -right-1 bg-green-400 rounded-full border-2 border-white transition-all duration-300 ${
@@ -367,10 +374,10 @@ export default function Sidebar({ collapsed }: SidebarProps) {
                         }`}
                     >
                         <span className="text-sm font-medium text-gray-800 group-hover:text-blue-700 transition-colors duration-300 block truncate">
-                            Nguyễn Văn A
+                            {user?.username}
                         </span>
                         <span className="text-xs text-gray-500">
-                            Premium User
+                            {user?.role}
                         </span>
                     </div>
 

@@ -11,11 +11,14 @@ import {
     ArrowLeft,
     Check,
     X,
+    User,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
+import { authApi } from "../services/authApis";
 
 export default function RegisterPage() {
     const router = useRouter();
+    const [username, setUsername] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
@@ -45,6 +48,42 @@ export default function RegisterPage() {
     const isValidEmail = (email: string) => {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         return emailRegex.test(email);
+    };
+
+    const isValidUsername = (username: string) => {
+        username = username.trim();
+        const minLength = 4;
+        const maxLength = 30;
+
+        if (username.length === 0) return true; // Allow empty during typing
+        if (username.length < minLength || username.length > maxLength) {
+            return false; // Invalid length
+        }
+
+        const usernameRegex = /^[a-zA-Z0-9_]+$/;
+        if (!usernameRegex.test(username)) {
+            return false; // Invalid characters
+        }
+
+        return true;
+    };
+
+    const getUsernameError = (username: string) => {
+        username = username.trim();
+        const minLength = 4;
+        const maxLength = 30;
+
+        if (username.length === 0) return "";
+        if (username.length < minLength || username.length > maxLength) {
+            return "Tên người dùng phải từ 4 đến 30 ký tự.";
+        }
+
+        const usernameRegex = /^[a-zA-Z0-9_]+$/;
+        if (!usernameRegex.test(username)) {
+            return "Tên người dùng chỉ có thể chứa chữ cái, số và dấu gạch dưới (_).";
+        }
+
+        return "";
     };
 
     const getPasswordStrength = (password: string) => {
@@ -99,9 +138,17 @@ export default function RegisterPage() {
     const handleRegister = useCallback(async () => {
         setError("");
 
-        if (!email || !password || !confirmPassword) {
+        if (!username || !email || !password || !confirmPassword) {
             setError("Vui lòng điền đầy đủ thông tin.");
             toast.error("Vui lòng điền đầy đủ thông tin.", { duration: 2000 });
+            return;
+        }
+
+        // Check username validity
+        const usernameError = getUsernameError(username);
+        if (usernameError) {
+            setError(usernameError);
+            toast.error(usernameError, { duration: 2000 });
             return;
         }
 
@@ -128,8 +175,11 @@ export default function RegisterPage() {
         setIsLoading(true);
 
         try {
-            await registerApi(email, password);
-            toast.success("Đăng ký thành công! 🎉", { duration: 1500 });
+            const res = await authApi.register(username, password, email);
+            toast.success(res.message || "Đăng ký thành công! 🎉", {
+                duration: 1500,
+            });
+
             setTimeout(() => {
                 router.push("/login");
             }, 1500);
@@ -141,7 +191,7 @@ export default function RegisterPage() {
         } finally {
             setIsLoading(false);
         }
-    }, [email, password, confirmPassword, router]);
+    }, [username, email, password, confirmPassword, router]);
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 via-white to-blue-50 text-black p-4 relative overflow-hidden">
@@ -205,6 +255,43 @@ export default function RegisterPage() {
                         {error}
                     </div>
                 )}
+
+                {/* Username input */}
+                <div
+                    className={`mb-6 transform transition-all duration-1000 ease-out ${
+                        isLoaded
+                            ? "translate-y-0 opacity-100"
+                            : "translate-y-4 opacity-0"
+                    }`}
+                    style={{ transitionDelay: "500ms" }}
+                >
+                    <div className="relative">
+                        <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+                            <User className="w-5 h-5" />
+                        </div>
+                        <input
+                            type="text"
+                            value={username}
+                            onChange={(e) => {
+                                setUsername(e.target.value);
+                                if (error) setError("");
+                            }}
+                            onFocus={() => setFocusedField("username")}
+                            onBlur={() => setFocusedField("")}
+                            placeholder="Username"
+                            className={`w-full p-4 pl-12 border rounded-xl outline-none transition-all duration-300 bg-gray-50/50 ${
+                                focusedField === "username"
+                                    ? "border-green-400 bg-white shadow-lg ring-4 ring-green-100 transform scale-[1.02]"
+                                    : "border-gray-300 hover:border-gray-400"
+                            }`}
+                        />
+                        {username && isValidUsername(username) && (
+                            <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                                <Check className="w-5 h-5 text-green-500" />
+                            </div>
+                        )}
+                    </div>
+                </div>
 
                 {/* Email input */}
                 <div

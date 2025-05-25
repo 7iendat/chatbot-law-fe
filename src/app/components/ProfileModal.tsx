@@ -1,34 +1,23 @@
 import React, { useEffect, useRef, useState } from "react";
 import { User, Mail, Shield, Crown, Calendar, X } from "lucide-react";
+import { useAuth } from "../contexts/AuthContext";
 
 interface ProfileModalProps {
     isOpen: boolean;
     onClose: () => void;
-    user?: {
-        name: string;
-        email: string;
-        role: string;
-        plan: string;
-        joinedAt: string;
-    };
 }
 
-const ProfileModal: React.FC<ProfileModalProps> = ({
-    isOpen,
-    onClose,
-    user,
-}) => {
+const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) => {
     const modalRef = useRef<HTMLDivElement>(null);
     const [isAnimating, setIsAnimating] = useState(false);
     const [shouldRender, setShouldRender] = useState(false);
+    const { user } = useAuth();
 
     // Default user data
     const defaultUser = {
-        name: "Nguyễn Văn A",
+        username: "Nguyễn Văn A",
         email: "nguyenvana@example.com",
         role: "Quản trị viên",
-        plan: "Gói Pro",
-        joinedAt: "12/02/2024",
     };
 
     const userData = user || defaultUser;
@@ -92,7 +81,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
         {
             icon: User,
             label: "Họ tên",
-            value: userData.name,
+            value: userData.username,
             color: "text-blue-600",
             bgColor: "bg-blue-50",
         },
@@ -110,20 +99,6 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
             color: "text-purple-600",
             bgColor: "bg-purple-50",
         },
-        {
-            icon: Crown,
-            label: "Gói tài khoản",
-            value: userData.plan,
-            color: "text-amber-600",
-            bgColor: "bg-amber-50",
-        },
-        {
-            icon: Calendar,
-            label: "Ngày tham gia",
-            value: userData.joinedAt,
-            color: "text-gray-600",
-            bgColor: "bg-gray-50",
-        },
     ];
 
     return (
@@ -136,7 +111,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
         >
             <div
                 ref={modalRef}
-                className={`bg-white/95 backdrop-blur-lg rounded-2xl shadow-2xl w-full max-w-md h-[90vh] relative overflow-auto scrollbar-hide transition-all duration-300 ease-out transform ${
+                className={`bg-white/95 backdrop-blur-lg rounded-2xl shadow-2xl w-full max-w-md h-fit relative overflow-auto scrollbar-hide transition-all duration-300 ease-out transform ${
                     isAnimating
                         ? "opacity-100 scale-100 translate-y-0"
                         : "opacity-0 scale-95 translate-y-4"

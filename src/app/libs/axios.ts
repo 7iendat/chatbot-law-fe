@@ -1,28 +1,93 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from "axios";
+import axios, {
+    AxiosInstance,
+    AxiosRequestConfig,
+    AxiosResponse,
+    AxiosError,
+} from "axios";
 
 // API Base URL - can be configured via environment variables
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
+const API_BASE_URL =
+    process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000/api";
 
 // Create axios instance with default configuration
 const apiClient: AxiosInstance = axios.create({
     baseURL: API_BASE_URL,
-    timeout: 50000, // 10 seconds timeout
+    timeout: 50000, // 50 seconds timeout
     headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
     },
+    withCredentials: true, // Include cookies (e.g., refresh_token) in requests
 });
+
+// Helper functions for token management
+export const getAccessToken = (): string | null => {
+    return typeof window !== "undefined"
+        ? localStorage.getItem("accessToken")
+        : null;
+};
+
+export const setAccessToken = (token: string): void => {
+    if (typeof window !== "undefined") {
+        localStorage.setItem("accessToken", token);
+    }
+};
+
+export const clearAccessToken = (): void => {
+    if (typeof window !== "undefined") {
+        localStorage.removeItem("accessToken");
+        localStorage.removeItem("userData");
+    }
+};
+
+// Interface for refresh token response
+interface RefreshResponse {
+    accessToken: string;
+    username: string;
+    email: string;
+    role: string;
+}
+
+// Auto-refresh token function
+const autoRefreshToken = async (
+    error: AxiosError,
+    retryRequest: () => Promise<AxiosResponse>
+): Promise<AxiosResponse> => {
+    try {
+        if (!error.response || error.response.status !== 401) {
+            throw new Error("Không phải lỗi 401, không thể làm mới token");
+        }
+
+        // Call the refresh endpoint
+        const response = await apiClient.post<RefreshResponse>(
+            "/uset/refresh-token",
+            {}
+        );
+
+        // Update access token
+        setAccessToken(response.data.accessToken);
+
+        // Retry the original request
+        return await retryRequest();
+    } catch (refreshError: any) {
+        console.error(
+            "Làm mới token thất bại:",
+            refreshError.message || refreshError
+        );
+        clearAccessToken();
+        if (typeof window !== "undefined") {
+            window.location.href = "/login";
+        }
+        throw new Error("Làm mới token thất bại. Vui lòng đăng nhập lại.");
+    }
+};
 
 // Request interceptor - Add auth token to requests
 apiClient.interceptors.request.use(
-    (config: any) => {
-        // Get token from localStorage
-        const token =
-            typeof window !== "undefined"
-                ? localStorage.getItem("accessToken")
-                : null;
-
+    (config) => {
+        const token = getAccessToken();
         if (token) {
+            config.headers = config.headers || {};
             config.headers.Authorization = `Bearer ${token}`;
         }
 
@@ -42,7 +107,7 @@ apiClient.interceptors.request.use(
     }
 );
 
-// Response interceptor - Handle responses and errors globally
+// Response interceptor - Handle responses, errors, and token refresh
 apiClient.interceptors.response.use(
     (response: AxiosResponse) => {
         // Log response in development
@@ -54,10 +119,9 @@ apiClient.interceptors.response.use(
                 response.data
             );
         }
-
         return response;
     },
-    (error) => {
+    async (error: AxiosError) => {
         // Log error in development
         if (process.env.NODE_ENV === "development") {
             console.error(
@@ -66,31 +130,37 @@ apiClient.interceptors.response.use(
             );
         }
 
-        // Handle specific error cases
-        if (error.response?.status === 401) {
-            // Only redirect to login if it's NOT a login request
-            // Check if the request URL contains login/auth endpoints
+        // Handle 401 Unauthorized with token refresh
+        if (error.response && error.response.status === 401 && error.config) {
             const isLoginRequest =
-                error.config?.url?.includes("/login") ||
-                error.config?.url?.includes("/auth") ||
-                error.config?.url?.includes("/signin");
+                error.config.url?.includes("/login") ||
+                error.config.url?.includes("/auth") ||
+                error.config.url?.includes("/signin") ||
+                error.config.url?.includes("/refresh");
 
-            if (!isLoginRequest && typeof window !== "undefined") {
-                // Unauthorized for protected routes - redirect to login
-                localStorage.removeItem("accessToken");
-                localStorage.removeItem("user");
-                window.location.href = "/login";
+            if (!isLoginRequest) {
+                try {
+                    const response = await autoRefreshToken(error, () =>
+                        apiClient.request({
+                            ...error.config,
+                            headers: {
+                                ...error.config?.headers,
+                                Authorization: `Bearer ${getAccessToken()}`,
+                            },
+                        })
+                    );
+                    return response;
+                } catch (refreshError) {
+                    return Promise.reject(refreshError);
+                }
             }
-            // For login requests, let the error bubble up to be handled by the component
         }
 
-        if (error.response?.status === 403) {
-            // Forbidden - show error message
+        // Handle other errors
+        if (error.response && error.response.status === 403) {
             console.error("Access forbidden");
         }
-
-        if (error.response?.status >= 500) {
-            // Server error
+        if (error.response && error.response.status >= 500) {
             console.error("Server error occurred");
         }
 
@@ -101,12 +171,11 @@ apiClient.interceptors.response.use(
 // Helper function to handle API errors consistently
 export const handleApiError = (error: any): string => {
     if (axios.isAxiosError(error)) {
-        // Network error
+        console.error("Axios error:", error);
         if (!error.response) {
             return "Không thể kết nối đến server. Vui lòng kiểm tra kết nối mạng.";
         }
 
-        // Server responded with error - check for FastAPI's detail field first
         const message =
             error.response.data?.detail ||
             error.response.data?.message ||

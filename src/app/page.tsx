@@ -1,34 +1,53 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Sidebar from "@/app/components/Sidebar";
 import ChatBox from "@/app/components/Chatbot";
-import { Menu, ArrowRightFromLine, ArrowLeftFromLine } from "lucide-react";
+import {
+    Menu,
+    ArrowRightFromLine,
+    ArrowLeftFromLine,
+    LogOut,
+} from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Toaster } from "react-hot-toast";
+import { useAuth } from "./contexts/AuthContext";
+import { useRouteGuard } from "./hooks/useRouteGuard";
+import { AuthLoadingSpinner } from "./components/AuthLoadingSpinner";
 
-export default function Home() {
-    const router = useRouter();
-    const [showSidebar, setShowSidebar] = useState(false); // mobile
-    const [collapseSidebar, setCollapseSidebar] = useState(false); // laptop
-    const [loading, setLoading] = useState(true);
-    // 🛡️ Kiểm tra token khi load trang
+const HomePage = () => {
+    const { user, logout } = useAuth();
+    const [showSidebar, setShowSidebar] = useState(false);
+    const [collapseSidebar, setCollapseSidebar] = useState(false);
+    const { isAuthorized, isLoading, isAuthenticated } = useRouteGuard({
+        // Lấy thêm isAuthenticated
+        requireAuth: true,
+        redirectTo: "/welcome",
+    });
+
     useEffect(() => {
-        const token = localStorage.getItem("accessToken");
-        if (!token) {
-            router.push("/welcome");
-        } else {
-            setLoading(false); // ✅ Có token rồi mới render trang Home
-        }
-    }, [router]);
+        console.log("HomePage useRouteGuard state:", {
+            isLoading,
+            isAuthorized,
+            isAuthenticated_from_hook: isAuthenticated,
+        });
+    }, [isLoading, isAuthorized, isAuthenticated]);
 
-    // ⛔ Loading thì chưa render gì cả
-    if (loading) {
-        return null;
+    if (isLoading || (!isAuthorized && !isAuthenticated)) {
+        console.log("HomePage: Showing AuthLoadingSpinner.", {
+            isLoading,
+            isAuthorized,
+            isAuthenticated,
+        });
+        return <AuthLoadingSpinner />;
     }
 
+    if (!isAuthorized) {
+        console.log(
+            "HomePage: Not authorized (after loading, user might be authenticated but wrong role). Returning null for redirect."
+        );
+        return null;
+    }
     return (
         <div className="flex h-screen flex-col overflow-hidden md:flex-row bg-white text-black">
             {/* Sidebar - mobile (overlay) */}
@@ -76,17 +95,33 @@ export default function Home() {
                 <Sidebar collapsed={collapseSidebar} />
             </div>
 
-            {/* Nội dung chính */}
+            {/* Main content */}
             <div className="flex-1 flex flex-col overflow-hidden p-4 md:p-6 h-full">
-                {/* Nút mở sidebar trên mobile */}
-                <div className="md:hidden mb-4 flex items-center justify-between">
-                    <h1 className="text-xl font-bold">Chatbot Luật</h1>
-                    <button
-                        onClick={() => setShowSidebar(true)}
-                        className="p-2 border rounded"
-                    >
-                        <Menu />
-                    </button>
+                {/* Header */}
+                <div className="mb-4 flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                        <button
+                            onClick={() => setShowSidebar(true)}
+                            className="md:hidden p-2 border rounded hover:bg-gray-100 transition-colors"
+                        >
+                            <Menu />
+                        </button>
+                        <h1 className="text-xl font-bold">Chatbot Luật</h1>
+                    </div>
+
+                    {/* User info and logout */}
+                    <div className="flex items-center space-x-3">
+                        <span className="text-sm text-gray-600 hidden sm:block">
+                            Xin chào, {user?.username || user?.email}!
+                        </span>
+                        <button
+                            onClick={logout}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                            title="Đăng xuất"
+                        >
+                            <LogOut size={20} />
+                        </button>
+                    </div>
                 </div>
 
                 <ChatBox />
@@ -95,4 +130,7 @@ export default function Home() {
             <Toaster />
         </div>
     );
-}
+};
+
+// Export protected component
+export default HomePage;

@@ -4,6 +4,7 @@ import ProfileModal from "./ProfileModal";
 import { authApi } from "../services/authApis";
 import { toast } from "react-hot-toast";
 import ChangePasswordModal from "./ChangePasswordModal";
+import { useAuth } from "../contexts/AuthContext";
 
 const MenuDropProfile = ({ collapsed }: any) => {
     const [activeSubmenu, setActiveSubmenu] = useState<
@@ -17,17 +18,7 @@ const MenuDropProfile = ({ collapsed }: any) => {
     const handleChangePasswordClick = () => {
         setShowChangePasswordModal(true);
     };
-    const handleLogout = async () => {
-        try {
-            const res = await authApi.logout();
-            console.log(res);
-            if (res.message) localStorage.removeItem("accessToken");
-            toast.success("Đăng xuất thành công");
-            window.location.href = "/login";
-        } catch (error) {
-            toast.error("Đăng xuất không thành công");
-        }
-    };
+    const { logout } = useAuth();
 
     // Animate in when component mounts
     useEffect(() => {
@@ -202,7 +193,7 @@ const MenuDropProfile = ({ collapsed }: any) => {
 
                     <li>
                         <button
-                            onClick={handleLogout}
+                            onClick={logout}
                             className="w-full text-left text-sm text-gray-700 hover:bg-gradient-to-r hover:from-red-50 hover:to-pink-50 hover:text-red-600 rounded-lg p-3 cursor-pointer transition-all duration-200 ease-in-out transform hover:scale-[1.02] group"
                         >
                             <div className="flex items-center gap-3">
