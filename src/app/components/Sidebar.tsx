@@ -1,3 +1,6 @@
+// app/components/Sidebar.tsx
+"use client";
+
 import {
     MessageCircle,
     Plus,
@@ -7,86 +10,141 @@ import {
     Sparkles,
     Clock,
     Trash2,
+    Home,
+    Loader2,
+    AlertTriangle,
 } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import MenuDropProfile from "./MenuDropProfile";
 import { useAuth } from "../contexts/AuthContext";
+import {
+    chatApis,
+    ApiConversationItem,
+    ApiMessageItem,
+} from "../services/chatApis"; // Import thêm ApiMessageItem nếu cần
+import toast from "react-hot-toast";
+import { useRouter, usePathname } from "next/navigation";
 
 interface SidebarProps {
     collapsed?: boolean;
+    currentChatId?: string;
 }
 
-interface ChatHistory {
-    id: number;
+interface ChatHistoryDisplayItem {
+    id: string;
     title: string;
     timestamp: Date;
     preview: string;
 }
 
-export default function Sidebar({ collapsed }: SidebarProps) {
+export default function Sidebar({ collapsed, currentChatId }: SidebarProps) {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
-    const [selectedChat, setSelectedChat] = useState<number | null>(null);
-    const [hoveredChat, setHoveredChat] = useState<number | null>(null);
+    const [hoveredChat, setHoveredChat] = useState<string | null>(null);
     const [isHoveringLogo, setIsHoveringLogo] = useState(false);
-    const [isTransitioning, setIsTransitioning] = useState(false);
     const { user } = useAuth();
+    const router = useRouter();
+    const pathname = usePathname();
 
-    // Mock chat history data
-    const [chatHistory] = useState<ChatHistory[]>([
-        {
-            id: 1,
-            title: "Luật lao động mới",
-            timestamp: new Date(Date.now() - 1000 * 60 * 30),
-            preview: "Hỏi về quy định mới...",
-        },
-        {
-            id: 2,
-            title: "Hợp đồng thuê nhà",
-            timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2),
-            preview: "Điều khoản hợp đồng...",
-        },
-        {
-            id: 3,
-            title: "Quyền lợi người tiêu dùng",
-            timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24),
-            preview: "Bảo vệ quyền lợi...",
-        },
-        {
-            id: 4,
-            title: "Luật doanh nghiệp",
-            timestamp: new Date(Date.now() - 1000 * 60 * 60 * 48),
-            preview: "Thành lập công ty...",
-        },
-        {
-            id: 5,
-            title: "Quy định giao thông",
-            timestamp: new Date(Date.now() - 1000 * 60 * 60 * 72),
-            preview: "Xử phạt vi phạm...",
-        },
-    ]);
+    const [chatHistory, setChatHistory] = useState<ChatHistoryDisplayItem[]>(
+        []
+    );
+    const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+    const [errorHistory, setErrorHistory] = useState<string | null>(null);
 
-    const handleMenuToggle = () => {
-        setIsMenuOpen(!isMenuOpen);
-    };
+    const fetchChatHistory = useCallback(async () => {
+        if (!user) {
+            setChatHistory([]);
+            setIsLoadingHistory(false);
+            return;
+        }
+        console.log("[Sidebar] Fetching chat history for user:", user.email);
+        setIsLoadingHistory(true);
+        setErrorHistory(null);
+        try {
+            const apiConversations = await chatApis.getConversations();
+            console.log(
+                "[Sidebar] Received conversations from API:",
+                apiConversations
+            );
 
-    // Handle transition state
+            const sortedConversations = apiConversations.sort(
+                (a, b) =>
+                    new Date(b.updated_at).getTime() -
+                    new Date(a.updated_at).getTime()
+            );
+
+            const formattedHistory: ChatHistoryDisplayItem[] =
+                sortedConversations.map((conv: ApiConversationItem) => {
+                    // Lấy nội dung tin nhắn cuối cùng từ mảng messages
+                    let lastMessageContent = "";
+                    if (conv.messages && conv.messages.length > 0) {
+                        // Giả sử tin nhắn cuối cùng là phần tử cuối cùng trong mảng
+                        lastMessageContent =
+                            conv.messages[conv.messages.length - 1].content;
+                    }
+
+                    let title = "";
+                    if (lastMessageContent) {
+                        title = lastMessageContent
+                            .split(" ")
+                            .slice(0, 7)
+                            .join(" ");
+                        if (lastMessageContent.split(" ").length > 7) {
+                            title += "...";
+                        }
+                    }
+
+                    // Nếu không có title từ tin nhắn, tạo title mặc định
+                    if (!title) {
+                        title = `Cuộc trò chuyện (${conv.conversation_id.slice(
+                            0,
+                            5
+                        )}...)`;
+                    }
+
+                    return {
+                        id: conv.conversation_id,
+                        title: title,
+                        timestamp: new Date(conv.updated_at), // updated_at của cuộc hội thoại
+                        preview: lastMessageContent || "Chưa có tin nhắn",
+                    };
+                });
+            setChatHistory(formattedHistory);
+        } catch (err) {
+            console.error("[Sidebar] Error fetching chat history:", err);
+            const errorMessage =
+                err instanceof Error
+                    ? err.message
+                    : "Lỗi không xác định khi tải lịch sử.";
+            setErrorHistory(errorMessage);
+            toast.error(`Lỗi: ${errorMessage.substring(0, 100)}`);
+        } finally {
+            setIsLoadingHistory(false);
+        }
+    }, [user]);
+
     useEffect(() => {
-        setIsTransitioning(true);
-        const timer = setTimeout(() => setIsTransitioning(false), 300);
-        return () => clearTimeout(timer);
-    }, [collapsed]);
+        fetchChatHistory();
+    }, [fetchChatHistory]);
 
-    const formatTimeAgo = (date: Date) => {
+    const handleMenuToggle = () => setIsMenuOpen(!isMenuOpen);
+
+    const formatTimeAgo = (date: Date): string => {
         const now = new Date();
-        const diffInMinutes = Math.floor(
-            (now.getTime() - date.getTime()) / (1000 * 60)
+        const diffInSeconds = Math.floor(
+            (now.getTime() - date.getTime()) / 1000
         );
 
-        if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
-        if (diffInMinutes < 1440)
-            return `${Math.floor(diffInMinutes / 60)}h ago`;
-        return `${Math.floor(diffInMinutes / 1440)}d ago`;
+        if (diffInSeconds < 5) return "vừa xong";
+        if (diffInSeconds < 60) return `${diffInSeconds} giây`;
+        const diffInMinutes = Math.floor(diffInSeconds / 60);
+        if (diffInMinutes < 60) return `${diffInMinutes} phút`;
+        const diffInHours = Math.floor(diffInMinutes / 60);
+        if (diffInHours < 24) return `${diffInHours} giờ`;
+        const diffInDays = Math.floor(diffInHours / 24);
+        if (diffInDays < 7) return `${diffInDays} ngày`;
+        return date.toLocaleDateString("vi-VN");
     };
 
     useEffect(() => {
@@ -96,64 +154,94 @@ export default function Sidebar({ collapsed }: SidebarProps) {
                 setIsMenuOpen(false);
             }
         };
-
         document.addEventListener("click", handleClickOutside);
         return () => document.removeEventListener("click", handleClickOutside);
     }, []);
 
-    // const MenuDropProfile = () => (
-    //     <div
-    //         className={`absolute ${
-    //             collapsed ? "left-full ml-2" : "bottom-full mb-2"
-    //         } bg-white/95 backdrop-blur-sm border border-gray-200 rounded-xl shadow-2xl p-2 z-50 min-w-48 animate-scale-in`}
-    //     >
-    //         <div className="space-y-1">
-    //             <button className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-gray-100 rounded-lg transition-all duration-200 group">
-    //                 <User
-    //                     size={16}
-    //                     className="text-gray-600 group-hover:text-blue-600 transition-colors"
-    //                 />
-    //                 <span className="group-hover:text-blue-600">Profile</span>
-    //             </button>
-    //             <button className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-gray-100 rounded-lg transition-all duration-200 group">
-    //                 <Settings
-    //                     size={16}
-    //                     className="text-gray-600 group-hover:text-blue-600 transition-colors"
-    //                 />
-    //                 <span className="group-hover:text-blue-600">Settings</span>
-    //             </button>
-    //             <hr className="my-2 border-gray-200" />
-    //             <button className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-red-50 rounded-lg transition-all duration-200 group text-red-600">
-    //                 <LogOut
-    //                     size={16}
-    //                     className="group-hover:scale-110 transition-transform"
-    //                 />
-    //                 <span>Logout</span>
-    //             </button>
-    //         </div>
-    //     </div>
-    // );
+    const handleSelectChat = (chatId: string) => router.push(`/chat/${chatId}`);
+    const handleNewChat = () => router.push("/");
+    const isChatPage = pathname.startsWith("/chat/");
 
+    const handleDeleteChat = async (
+        chatIdToDelete: string,
+        chatTitle: string
+    ) => {
+        toast(
+            (t) => (
+                <div className="flex flex-col items-center">
+                    <span className="text-center mb-2">
+                        Xóa cuộc trò chuyện <br /> "{chatTitle.substring(0, 30)}
+                        {chatTitle.length > 30 ? "..." : ""}"?
+                    </span>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={async () => {
+                                toast.dismiss(t.id);
+                                try {
+                                    // await chatApis.deleteConversation(chatIdToDelete); // Bỏ comment khi có API
+                                    console.log(
+                                        `[Sidebar] Simulating delete for ${chatIdToDelete}`
+                                    );
+                                    toast.success("Đã xóa (giả lập)!");
+                                    setChatHistory((prev) =>
+                                        prev.filter(
+                                            (chat) => chat.id !== chatIdToDelete
+                                        )
+                                    );
+                                    if (currentChatId === chatIdToDelete) {
+                                        router.push("/");
+                                    }
+                                } catch (error) {
+                                    const message =
+                                        error instanceof Error
+                                            ? error.message
+                                            : "Lỗi không xác định";
+                                    toast.error(`Lỗi xóa: ${message}`);
+                                }
+                            }}
+                            className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-md text-sm"
+                        >
+                            Xóa
+                        </button>
+                        <button
+                            onClick={() => toast.dismiss(t.id)}
+                            className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded-md text-sm"
+                        >
+                            Hủy
+                        </button>
+                    </div>
+                </div>
+            ),
+            { duration: 10000 }
+        );
+    };
+
+    // PHẦN JSX CÒN LẠI GIỮ NGUYÊN
+    // ... (toàn bộ phần return (...) của bạn) ...
     return (
         <div
             className={`flex flex-col justify-between h-full py-4 relative transition-all duration-300 ${
                 collapsed ? "px-2" : "mx-3"
             }`}
         >
-            {/* TOP: Logo + New Chat Button */}
-            <div className="flex flex-col gap-6">
-                {/* Logo Section */}
+            <div className="flex flex-col gap-y-3">
+                {" "}
+                {/* Top Section */}
                 <div
                     className={`transition-all duration-500 ${
                         collapsed ? "text-center" : ""
                     }`}
                 >
+                    {" "}
+                    {/* Logo & Buttons Container */}
                     <div
-                        className={`group relative flex items-center gap-3 mb-6 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 rounded-xl p-3 cursor-pointer transition-all duration-300 transform hover:scale-[1.02] ${
+                        className={`group relative flex items-center gap-3 mb-3 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 rounded-xl p-3 cursor-pointer transition-all duration-300 transform hover:scale-[1.02] ${
                             collapsed ? "justify-center" : "justify-start"
                         }`}
                         onMouseEnter={() => setIsHoveringLogo(true)}
                         onMouseLeave={() => setIsHoveringLogo(false)}
+                        onClick={() => router.push("/")}
+                        title="Trang chủ JuriBot"
                     >
                         <div className="relative flex-shrink-0">
                             <Image
@@ -173,7 +261,6 @@ export default function Sidebar({ collapsed }: SidebarProps) {
                                 }`}
                             ></div>
                         </div>
-
                         <div
                             className={`transition-all duration-500 overflow-hidden ${
                                 collapsed
@@ -188,8 +275,6 @@ export default function Sidebar({ collapsed }: SidebarProps) {
                                 AI Legal Assistant
                             </p>
                         </div>
-
-                        {/* Enhanced Tooltip for collapsed state */}
                         {collapsed && (
                             <div className="absolute left-full top-1/2 transform -translate-y-1/2 ml-3 opacity-0 group-hover:opacity-100 bg-gray-900 text-white text-sm px-3 py-2 rounded-lg shadow-xl transition-all duration-300 whitespace-nowrap z-50 pointer-events-none">
                                 <div className="font-medium">JuriBot</div>
@@ -200,10 +285,25 @@ export default function Sidebar({ collapsed }: SidebarProps) {
                             </div>
                         )}
                     </div>
-
-                    {/* New Chat Button */}
+                    {isChatPage && !collapsed && (
+                        <button
+                            onClick={() => router.push("/")}
+                            title="Về trang chủ tạo cuộc trò chuyện mới"
+                            className="w-full flex items-center gap-3 px-3 py-2.5 mb-2 hover:bg-gray-100 text-gray-700 rounded-xl transition-all duration-300 transform hover:scale-[1.02] group relative"
+                        >
+                            <Home
+                                size={18}
+                                className="flex-shrink-0 text-gray-500 group-hover:text-blue-500"
+                            />
+                            <span className="font-medium text-lg">
+                                Trang chủ
+                            </span>
+                        </button>
+                    )}
                     <button
-                        className={`w-full flex items-center  gap-3 px-3 py-3 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02] group relative ${
+                        onClick={handleNewChat}
+                        title="Tạo cuộc trò chuyện mới"
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02] group relative ${
                             collapsed ? "justify-center" : ""
                         }`}
                     >
@@ -212,136 +312,231 @@ export default function Sidebar({ collapsed }: SidebarProps) {
                             className="group-hover:rotate-90 transition-transform duration-300 flex-shrink-0"
                         />
                         <span
-                            className={`font-medium transition-all duration-500 overflow-hidden whitespace-nowrap ${
+                            className={`font-medium text-base transition-all duration-500 overflow-hidden whitespace-nowrap ${
                                 collapsed
                                     ? "w-0 opacity-0 hidden"
                                     : "w-auto opacity-100"
                             }`}
                         >
-                            New Chat
+                            Chat mới
                         </span>
-
-                        {/* Tooltip for collapsed new chat button */}
                         {collapsed && (
                             <div className="absolute left-full top-1/2 transform -translate-y-1/2 ml-3 opacity-0 group-hover:opacity-100 bg-gray-900 text-white text-sm px-3 py-2 rounded-lg shadow-xl transition-all duration-300 whitespace-nowrap z-50 pointer-events-none">
-                                New Chat
+                                Chat mới
                                 <div className="absolute right-full top-1/2 transform -translate-y-1/2 border-4 border-transparent border-r-gray-900"></div>
                             </div>
                         )}
                     </button>
                 </div>
-
-                {/* Chat History Section */}
-                <div className="flex-1 min-h-0">
-                    {/* Section Header */}
+                <div className="flex-1 min-h-0 mt-2">
+                    {" "}
+                    {/* Chat History Section */}
                     <div
                         className={`transition-all duration-500 overflow-hidden ${
                             collapsed
                                 ? "h-0 opacity-0 mb-0 hidden"
-                                : "h-auto opacity-100 mb-3"
+                                : "h-auto opacity-100 mb-2"
                         }`}
                     >
-                        <h2 className="text-sm font-semibold px-3 text-gray-600 flex items-center gap-2">
-                            <Clock size={16} />
-                            Recent Chats
+                        <h2 className="text-sm font-semibold px-3 text-gray-500 uppercase flex items-center gap-2 tracking-wider">
+                            <Clock size={14} />
+                            Lịch sử
                         </h2>
                     </div>
-
-                    <div
-                        className={`flex flex-col gap-1 overflow-y-auto overflow-x-hidden custom-scrollbar transition-all duration-300 ${
-                            collapsed ? "max-h-96" : "max-h-80 "
-                        }`}
-                    >
-                        {chatHistory.map((chat, i) => (
-                            <div
-                                key={chat.id}
-                                className="relative"
-                                onMouseEnter={() => setHoveredChat(i)}
-                                onMouseLeave={() => setHoveredChat(null)}
-                            >
-                                <button
-                                    onClick={() => setSelectedChat(i)}
-                                    className={`w-full text-left rounded-xl cursor-pointer transition-all duration-300 transform hover:scale-[1.02] relative overflow-hidden ${
-                                        collapsed
-                                            ? "p-2 justify-center flex items-center"
-                                            : "px-3 py-3"
-                                    } ${
-                                        selectedChat === i
-                                            ? "bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 shadow-md"
-                                            : "hover:bg-gray-50 hover:shadow-sm"
-                                    }`}
-                                >
-                                    {collapsed ? (
-                                        <MessageCircle
-                                            size={24}
-                                            className={`transition-colors duration-300 ${
-                                                selectedChat === i
-                                                    ? "text-blue-600"
-                                                    : "text-gray-600"
-                                            }`}
-                                        />
-                                    ) : (
-                                        <div className="space-y-1">
-                                            <div className="flex items-center justify-between">
-                                                <span
-                                                    className={`text-sm font-medium truncate transition-colors duration-300 flex-1 ${
-                                                        selectedChat === i
-                                                            ? "text-blue-700"
-                                                            : "text-gray-800"
-                                                    }`}
-                                                >
-                                                    {chat.title}
-                                                </span>
-                                                <span className="text-xs text-gray-400 ml-2 flex-shrink-0">
-                                                    {formatTimeAgo(
-                                                        chat.timestamp
-                                                    )}
-                                                </span>
-                                            </div>
-                                            <p className="text-xs text-gray-500 truncate">
-                                                {chat.preview}
-                                            </p>
-                                        </div>
-                                    )}
-
-                                    {/* Selection indicator for collapsed state */}
-                                    {collapsed && selectedChat === i && (
-                                        <div className="absolute left-0 top-1/2 transform -translate-y-1/2 w-1 h-6 bg-gradient-to-b from-blue-500 to-purple-600 rounded-r-full"></div>
-                                    )}
-                                </button>
-
-                                {/* Delete button on hover (only when expanded) */}
-                                {!collapsed && hoveredChat === i && (
-                                    <button className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 bg-red-100 hover:bg-red-200 text-red-600 rounded-md opacity-0 group-hover:opacity-100 transition-all duration-200 hover:scale-110 z-10">
-                                        <Trash2 size={14} />
+                    {isLoadingHistory && (
+                        <div
+                            className={`flex flex-col items-center justify-center p-4 text-gray-500 ${
+                                collapsed ? "py-10" : ""
+                            }`}
+                        >
+                            <Loader2
+                                size={collapsed ? 20 : 24}
+                                className="animate-spin mb-1"
+                            />
+                            {!collapsed && (
+                                <span className="text-xs">Đang tải...</span>
+                            )}
+                        </div>
+                    )}
+                    {!isLoadingHistory && errorHistory && (
+                        <div
+                            className={`p-3 text-red-600 bg-red-50 rounded-lg ${
+                                collapsed ? "text-center" : ""
+                            } text-xs group relative`} // Added group relative for tooltip
+                        >
+                            {collapsed ? (
+                                <AlertTriangle size={20} />
+                            ) : (
+                                <>
+                                    {errorHistory.substring(0, 100)}
+                                    {errorHistory.length > 100 && "..."}
+                                    <button
+                                        onClick={fetchChatHistory}
+                                        className="ml-1 text-xs underline text-blue-600 hover:text-blue-800"
+                                    >
+                                        Thử lại
                                     </button>
+                                </>
+                            )}
+                            {collapsed && ( // Tooltip for collapsed error
+                                <div className="absolute left-full top-1/2 transform -translate-y-1/2 ml-3 opacity-0 group-hover:opacity-100 bg-red-700 text-white text-xs px-2 py-1 rounded-md shadow-xl transition-all duration-300 z-50 max-w-[200px] pointer-events-none">
+                                    {errorHistory}
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            fetchChatHistory();
+                                        }}
+                                        className="ml-1 underline hover:text-red-200"
+                                    >
+                                        Thử lại
+                                    </button>
+                                    <div className="absolute right-full top-1/2 transform -translate-y-1/2 border-4 border-transparent border-r-red-700"></div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    {!isLoadingHistory &&
+                        !errorHistory &&
+                        chatHistory.length === 0 && (
+                            <div
+                                className={`p-3 text-center text-gray-400 ${
+                                    collapsed ? "py-3 group relative" : "py-5" // Added group relative for tooltip
+                                } text-xs`}
+                            >
+                                {collapsed ? (
+                                    <MessageCircle size={20} />
+                                ) : (
+                                    "Chưa có cuộc trò chuyện nào."
                                 )}
-
-                                {/* Enhanced tooltip for collapsed state */}
-                                {collapsed && (
-                                    <div className="absolute left-full top-1/2 transform -translate-y-1/2 ml-3 opacity-0 group-hover:opacity-100 bg-gray-900 text-white text-sm px-3 py-2 rounded-lg shadow-xl transition-all duration-300 z-50 max-w-xs pointer-events-none">
-                                        <div className="font-medium">
-                                            {chat.title}
-                                        </div>
-                                        <div className="text-xs text-gray-300 mt-1">
-                                            {chat.preview}
-                                        </div>
-                                        <div className="text-xs text-gray-400 mt-1">
-                                            {formatTimeAgo(chat.timestamp)}
-                                        </div>
-                                        <div className="absolute right-full top-1/2 transform -translate-y-1/2 border-4 border-transparent border-r-gray-900"></div>
+                                {collapsed && ( // Tooltip for collapsed no history
+                                    <div className="absolute left-full top-1/2 transform -translate-y-1/2 ml-3 opacity-0 group-hover:opacity-100 bg-gray-700 text-white text-sm px-2 py-1 rounded-md shadow-xl transition-all duration-300 z-50 pointer-events-none">
+                                        Chưa có trò chuyện
+                                        <div className="absolute right-full top-1/2 transform -translate-y-1/2 border-4 border-transparent border-r-gray-700"></div>
                                     </div>
                                 )}
                             </div>
-                        ))}
-                    </div>
+                        )}
+                    {!isLoadingHistory &&
+                        !errorHistory &&
+                        chatHistory.length > 0 && (
+                            <div
+                                className={`flex flex-col gap-0.5 overflow-y-auto overflow-x-hidden custom-scrollbar transition-all duration-300 ${
+                                    collapsed
+                                        ? "max-h-[calc(100vh-250px)]"
+                                        : "max-h-[calc(100vh-330px)]"
+                                }`}
+                            >
+                                {chatHistory.map((chat) => (
+                                    <div
+                                        key={chat.id}
+                                        className="relative group/container "
+                                        onMouseEnter={() =>
+                                            !collapsed &&
+                                            setHoveredChat(chat.id)
+                                        }
+                                        onMouseLeave={() =>
+                                            setHoveredChat(null)
+                                        }
+                                    >
+                                        <button
+                                            onClick={() =>
+                                                handleSelectChat(chat.id)
+                                            }
+                                            title={
+                                                !collapsed
+                                                    ? `${chat.title}\n${chat.preview}`
+                                                    : chat.title
+                                            }
+                                            className={`w-full text-left rounded-lg cursor-pointer transition-all duration-200 transform hover:scale-[1.01] relative overflow-hidden group/item ${
+                                                collapsed
+                                                    ? "p-2.5 justify-center flex items-center"
+                                                    : "px-3 py-2"
+                                            } ${
+                                                currentChatId === chat.id
+                                                    ? "bg-gradient-to-r from-blue-100 via-purple-50 to-pink-50 border-l-4 border-blue-500 shadow-sm"
+                                                    : "hover:bg-gray-100"
+                                            }`}
+                                        >
+                                            {collapsed ? (
+                                                <MessageCircle
+                                                    size={20}
+                                                    className={`transition-colors duration-300 flex-shrink-0 ${
+                                                        currentChatId ===
+                                                        chat.id
+                                                            ? "text-blue-600"
+                                                            : "text-gray-500 group-hover/item:text-gray-700"
+                                                    }`}
+                                                />
+                                            ) : (
+                                                <div className="space-y-0.5 w-full overflow-hidden">
+                                                    <div className="flex items-center justify-between">
+                                                        <span
+                                                            className={`text-sm font-semibold truncate transition-colors duration-300 flex-1 pr-1 ${
+                                                                currentChatId ===
+                                                                chat.id
+                                                                    ? "text-blue-700"
+                                                                    : "text-gray-700 group-hover/item:text-gray-900"
+                                                            }`}
+                                                        >
+                                                            {chat.title}
+                                                        </span>
+                                                        <span className="text-[11px] text-gray-400 group-hover/item:text-gray-500 ml-2 flex-shrink-0">
+                                                            {formatTimeAgo(
+                                                                chat.timestamp
+                                                            )}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-[11px] text-gray-500 group-hover/item:text-gray-600 truncate">
+                                                        {chat.preview}
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </button>
+
+                                        {!collapsed &&
+                                            hoveredChat === chat.id && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleDeleteChat(
+                                                            chat.id,
+                                                            chat.title
+                                                        );
+                                                    }}
+                                                    className="absolute right-1.5 top-1/2 transform -translate-y-1/2 p-1 bg-red-50 hover:bg-red-100 text-red-500 hover:text-red-700 rounded-md opacity-0 group-hover/container:opacity-100 transition-all duration-150 hover:scale-110 z-10"
+                                                    title="Xóa"
+                                                >
+                                                    <Trash2 size={13} />
+                                                </button>
+                                            )}
+                                        {collapsed && (
+                                            <div className="absolute left-full top-1/2 transform -translate-y-1/2 ml-2 opacity-0 group-hover/container:opacity-100 bg-gray-800 text-white text-xs px-2 py-1.5 rounded-md shadow-xl transition-all duration-200 z-50 max-w-[220px] pointer-events-none">
+                                                <div className="font-semibold truncate">
+                                                    {chat.title}
+                                                </div>
+                                                <div className="text-gray-300 truncate mt-0.5 text-[11px]">
+                                                    {chat.preview}
+                                                </div>
+                                                <div className="text-gray-400 text-[10px] mt-1">
+                                                    {formatTimeAgo(
+                                                        chat.timestamp
+                                                    )}
+                                                </div>
+                                                <div className="absolute right-full top-1/2 transform -translate-y-1/2 border-4 border-transparent border-r-gray-800"></div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                 </div>
             </div>
 
-            {/* BOTTOM: Profile */}
-            <div className="relative profile-menu-container">
+            <div className="relative profile-menu-container mt-auto">
+                {" "}
+                {/* Profile Section */}
                 <div
-                    className={`mt-4 mb-3 border border-gray-200 hover:border-blue-300 flex items-center gap-3 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 p-3 rounded-xl cursor-pointer transition-all duration-300 transform hover:scale-[1.02] hover:shadow-lg group ${
+                    className={`mb-2 border border-gray-200 hover:border-blue-300 flex items-center gap-3 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 p-2.5 rounded-xl cursor-pointer transition-all duration-300 transform hover:scale-[1.01] hover:shadow-md group ${
                         collapsed ? "justify-center" : ""
                     }`}
                     onClick={handleMenuToggle}
@@ -353,19 +548,18 @@ export default function Sidebar({ collapsed }: SidebarProps) {
                             src={user?.avatar_url || "/profile.png"}
                             alt="User Avatar"
                             className="rounded-full border-2 border-gray-200 group-hover:border-blue-300 transition-all duration-300"
-                            unoptimized={user?.avatar_url ? true : false} // Disable optimization for external URLs
+                            unoptimized={!!user?.avatar_url} // Keep unoptimized if avatar_url can be external
                             onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                target.src = "/profile.png"; // Fallback to local image on error
+                                (e.target as HTMLImageElement).src =
+                                    "/profile.png";
                             }}
                         />
                         <div
-                            className={`absolute -bottom-1 -right-1 bg-green-400 rounded-full border-2 border-white transition-all duration-300 ${
-                                collapsed ? "w-2 h-2" : "w-3 h-3"
+                            className={`absolute -bottom-0.5 -right-0.5 bg-green-400 rounded-full border-2 border-white transition-all duration-300 ${
+                                collapsed ? "w-2 h-2" : "w-2.5 h-2.5"
                             }`}
                         ></div>
                     </div>
-
                     <div
                         className={`flex-1 min-w-0 transition-all duration-500 overflow-hidden ${
                             collapsed
@@ -373,54 +567,54 @@ export default function Sidebar({ collapsed }: SidebarProps) {
                                 : "w-auto opacity-100"
                         }`}
                     >
-                        <span className="text-sm font-medium text-gray-800 group-hover:text-blue-700 transition-colors duration-300 block truncate">
-                            {user?.username}
+                        <span
+                            className="text-xs font-semibold text-gray-800 group-hover:text-blue-700 transition-colors duration-300 block truncate"
+                            title={user?.username || user?.email || "User"}
+                        >
+                            {user?.username || user?.email || "User"}
                         </span>
-                        <span className="text-xs text-gray-500">
-                            {user?.role}
+                        <span
+                            className="text-[11px] text-gray-500 capitalize"
+                            title={user?.role || "Member"}
+                        >
+                            {user?.role || "Member"}
                         </span>
                     </div>
-
                     <div
                         className={`transform transition-all duration-300 ${
                             isMenuOpen ? "rotate-180" : ""
                         } ${collapsed ? "hidden" : "block"}`}
                     >
                         <Settings
-                            size={16}
+                            size={14}
                             className="text-gray-400 group-hover:text-blue-600"
                         />
                     </div>
-
-                    {/* Profile tooltip for collapsed state */}
                     {collapsed && (
-                        <div className="absolute left-full top-1/2 transform -translate-y-1/2 ml-3 opacity-0 group-hover:opacity-100 bg-gray-900 text-white text-sm px-3 py-2 rounded-lg shadow-xl transition-all duration-300 whitespace-nowrap z-50 pointer-events-none">
-                            <div className="font-medium">Nguyễn Văn A</div>
-                            <div className="text-xs text-gray-300">
-                                Premium User
+                        <div className="absolute left-full top-1/2 transform -translate-y-1/2 ml-2 opacity-0 group-hover:opacity-100 bg-gray-800 text-white text-xs px-2 py-1.5 rounded-md shadow-xl transition-all duration-300 whitespace-nowrap z-50 pointer-events-none">
+                            <div className="font-semibold">
+                                {user?.username || user?.email}
+                            </div>{" "}
+                            <div className="text-gray-300 text-[11px] capitalize">
+                                {user?.role}
                             </div>
-                            <div className="absolute right-full top-1/2 transform -translate-y-1/2 border-4 border-transparent border-r-gray-900"></div>
+                            <div className="absolute right-full top-1/2 transform -translate-y-1/2 border-4 border-transparent border-r-gray-800"></div>
                         </div>
                     )}
                 </div>
-
-                {/* Menu dropdown - positioned differently based on collapsed state */}
                 {isMenuOpen && <MenuDropProfile collapsed={collapsed} />}
-
-                {/* Footer - only show when expanded */}
                 <div
-                    className={`text-center space-y-2 transition-all duration-500 overflow-hidden ${
+                    className={`text-center space-y-1 transition-all duration-500 overflow-hidden ${
                         collapsed
                             ? "h-0 opacity-0 hidden"
                             : "h-auto opacity-100"
                     }`}
                 >
-                    <div className="flex items-center justify-center gap-1 text-xs text-gray-400">
-                        <Sparkles size={12} />
-                        <span>Powered by AI</span>
+                    <div className="flex items-center justify-center gap-1 text-[10px] text-gray-400">
+                        <Sparkles size={10} /> <span>Powered by AI</span>
                     </div>
-                    <p className="text-xs text-gray-400">
-                        © 2024 Angel AI. All rights reserved.
+                    <p className="text-[10px] text-gray-400">
+                        © {new Date().getFullYear()} JuriBot AI.
                     </p>
                 </div>
             </div>
@@ -436,44 +630,25 @@ export default function Sidebar({ collapsed }: SidebarProps) {
                         transform: scale(1) translateY(0);
                     }
                 }
-
-                @keyframes fade-in {
-                    from {
-                        opacity: 0;
-                        transform: translateY(10px);
-                    }
-                    to {
-                        opacity: 1;
-                        transform: translateY(0);
-                    }
-                }
-
                 .animate-scale-in {
                     animation: scale-in 0.2s ease-out;
                 }
-
-                .animate-fade-in {
-                    animation: fade-in 0.5s ease-out;
-                }
-
                 .custom-scrollbar {
                     scrollbar-width: thin;
-                    scrollbar-color: #cbd5e0 transparent;
+                    scrollbar-color: #cbd5e0 #f7fafc; /* thumb track */
                 }
-
                 .custom-scrollbar::-webkit-scrollbar {
-                    width: 4px;
+                    width: 5px;
                 }
-
                 .custom-scrollbar::-webkit-scrollbar-track {
-                    background: transparent;
+                    background: #f7fafc;
+                    border-radius: 10px;
                 }
-
                 .custom-scrollbar::-webkit-scrollbar-thumb {
                     background-color: #cbd5e0;
-                    border-radius: 2px;
+                    border-radius: 10px;
+                    border: 1px solid #f7fafc;
                 }
-
                 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
                     background-color: #a0aec0;
                 }
