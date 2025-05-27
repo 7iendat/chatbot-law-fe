@@ -60,10 +60,10 @@ export const chatApis = {
     createChat: async (): Promise<CreateChatResponse> => {
         // ... (như cũ)
         try {
-            const { data } = await api.post<CreateChatResponse>(
+            const response = await api.post<CreateChatResponse>(
                 "/chat/create-chat"
             ); // Giả sử API trả về { data: ... }
-            return data;
+            return response;
         } catch (error) {
             if (error instanceof Error) {
                 throw error;
@@ -82,11 +82,11 @@ export const chatApis = {
                 chat_id: chatId,
                 input: message,
             };
-            const { data } = await api.post<AnswerResponse>(
+            const resposne = await api.post<AnswerResponse>(
                 "/chat",
                 requestBody
             ); // Giả sử API trả về { data: ... }
-            return data;
+            return resposne;
         } catch (error) {
             if (error instanceof Error) {
                 throw error;

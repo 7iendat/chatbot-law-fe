@@ -1,8 +1,7 @@
-// app/chat/[chatId]/page.tsx
 "use client";
 
-import { useEffect, useState, useMemo } from "react"; // Thêm useMemo
-import { useParams } from "next/navigation"; // Bỏ useSearchParams
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import Sidebar from "@/app/components/Sidebar";
 import ChatBox from "@/app/components/Chatbot";
 import {
@@ -12,147 +11,153 @@ import {
     LogOut,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Toaster } from "react-hot-toast";
+import { Toaster, toast } from "react-hot-toast";
 import { useAuth } from "@/app/contexts/AuthContext";
 import { useRouteGuard } from "@/app/hooks/useRouteGuard";
 import { AuthLoadingSpinner } from "@/app/components/AuthLoadingSpinner";
+import { chatApis, ApiChatHistoryMessage } from "@/app/services/chatApis";
 
 const ChatPage = () => {
-    // --- TẤT CẢ HOOKS PHẢI ĐƯỢC GỌI Ở ĐÂY, TRƯỚC BẤT KỲ RETURN NÀO ---
     const { user, logout } = useAuth();
     const params = useParams();
+    const router = useRouter();
     const chatIdFromParams = params.chatId as string;
 
+    const [initialMessages, setInitialMessages] = useState<
+        ApiChatHistoryMessage[] | undefined
+    >(undefined);
+    const [isLoadingHistory, setIsLoadingHistory] = useState(true);
     const [retrievedInitialQuery, setRetrievedInitialQuery] = useState<
         string | undefined
     >(undefined);
-    const [hasAttemptedRetrieve, setHasAttemptedRetrieve] = useState(false);
+    const [hasAttemptedRetrieveQuery, setHasAttemptedRetrieveQuery] =
+        useState(false);
+
     const [showSidebar, setShowSidebar] = useState(false);
     const [collapseSidebar, setCollapseSidebar] = useState(false);
 
-    const { isAuthorized, isLoading, isAuthenticated } = useRouteGuard({
+    const {
+        isAuthorized,
+        isLoading: authIsLoading,
+        isAuthenticated,
+    } = useRouteGuard({
         requireAuth: true,
         redirectTo: "/welcome",
     });
 
-    // useEffect để lấy initial query từ sessionStorage
     useEffect(() => {
-        // Chỉ chạy nếu chatIdFromParams có giá trị và chưa thử lấy
-        if (chatIdFromParams && !hasAttemptedRetrieve) {
+        if (chatIdFromParams && !hasAttemptedRetrieveQuery) {
             try {
                 const storageKey = `initialQuery_${chatIdFromParams}`;
                 const query = sessionStorage.getItem(storageKey);
                 if (query) {
                     setRetrievedInitialQuery(query);
                     sessionStorage.removeItem(storageKey);
-                    console.log(
-                        `ChatPage: Retrieved and removed initial query for ${chatIdFromParams} from sessionStorage: "${query}"`
-                    );
-                } else {
-                    console.log(
-                        `ChatPage: No initial query found in sessionStorage for key: ${storageKey}`
-                    );
                 }
             } catch (error) {
                 console.error(
-                    "ChatPage: Error accessing sessionStorage:",
+                    "ChatPage: Error accessing sessionStorage for initial query:",
                     error
                 );
             }
-            setHasAttemptedRetrieve(true);
+            setHasAttemptedRetrieveQuery(true);
         }
-    }, [chatIdFromParams, hasAttemptedRetrieve]);
+    }, [chatIdFromParams, hasAttemptedRetrieveQuery]);
 
     useEffect(() => {
-        console.log("ChatPage useRouteGuard state:", {
-            isLoading,
-            isAuthorized,
-            isAuthenticated_from_hook: isAuthenticated,
-            chatId: chatIdFromParams,
-            retrievedInitialQuery,
-        });
-    }, [
-        isLoading,
-        isAuthorized,
-        isAuthenticated,
-        chatIdFromParams,
-        retrievedInitialQuery,
-    ]);
+        if (chatIdFromParams && user && isAuthorized) {
+            setIsLoadingHistory(true);
+            setInitialMessages(undefined);
+            console.log(
+                `[ChatPage] Attempting to load chat history for: ${chatIdFromParams}`
+            );
 
-    // --- CÁC RETURN CÓ ĐIỀU KIỆN NẰM SAU TẤT CẢ CÁC HOOK CALLS ---
-    if (isLoading || (!isAuthorized && !isAuthenticated)) {
-        console.log("ChatPage: Showing AuthLoadingSpinner.");
+            chatApis
+                .getConversationHistory(chatIdFromParams)
+                .then((response) => {
+                    console.log(
+                        "[ChatPage] Loaded conversation history:",
+                        response
+                    );
+                    setInitialMessages(response.history);
+                })
+                .catch((err) => {
+                    console.error(
+                        `[ChatPage] Error loading chat history for ${chatIdFromParams}:`,
+                        err
+                    );
+                    toast.error(
+                        err.message || "Không thể tải lịch sử cuộc hội thoại."
+                    );
+                })
+                .finally(() => {
+                    setIsLoadingHistory(false);
+                });
+        } else if (!chatIdFromParams) {
+            setIsLoadingHistory(false);
+        }
+    }, [chatIdFromParams, user, isAuthorized, router]);
+
+    if (authIsLoading || (!isAuthorized && !isAuthenticated)) {
         return <AuthLoadingSpinner />;
     }
-
     if (!isAuthorized) {
-        console.log("ChatPage: Not authorized. Returning null for redirect.");
         return null;
     }
-
-    // Nếu chatIdFromParams không có giá trị (ví dụ, route không match đúng),
-    // hoặc chưa thử lấy initial query (chưa muốn ChatBox hoạt động đầy đủ)
-    // thì có thể hiển thị một trạng thái loading/chờ khác ở đây
-    // thay vì render ChatBox ngay.
-    // Tuy nhiên, để giải quyết lỗi Hook, chúng ta sẽ render ChatBox
-    // và truyền `undefined` cho chatId nếu nó chưa sẵn sàng.
-    // ChatBox sẽ cần phải xử lý trường hợp này.
-
-    // **KHÔNG SỬ DỤNG useMemo để render có điều kiện ChatBox ở đây nữa**
-    // const chatBoxElement = useMemo(...); // Bỏ dòng này
-
-    // Nếu chatIdFromParams chưa có, không nên render phần còn lại của trang
     if (!chatIdFromParams) {
-        console.log(
-            "ChatPage: Invalid Chat ID (from params). Waiting for valid chatId."
+        return (
+            <div className="flex items-center justify-center h-screen">
+                ID cuộc hội thoại không hợp lệ.
+            </div>
         );
-        // Có thể hiển thị một spinner toàn trang hoặc thông báo lỗi
-        return <AuthLoadingSpinner />;
-        // Hoặc return <p>Chat không tồn tại hoặc ID không hợp lệ.</p>;
     }
 
-    // Nếu đã có chatIdFromParams, nhưng chưa attempt retrieve initialQuery
-    // thì vẫn render ChatBox, nhưng initialQuery sẽ là undefined.
-    // ChatBox sẽ đợi initialQuery (nếu cần) hoặc bắt đầu với trạng thái rỗng.
-
     return (
-        <div className="flex h-screen flex-col overflow-hidden md:flex-row bg-white text-black">
-            {/* ... Sidebar JSX ... */}
+        <div className="flex h-screen overflow-hidden bg-white text-black">
+            {/* Sidebar Mobile */}
             <AnimatePresence>
                 {showSidebar && (
                     <motion.div
-                        className="fixed inset-0 z-50 bg-black bg-opacity-40 md:hidden"
-                        onClick={() => setShowSidebar(false)}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
+                        initial={{ x: "-100%" }}
+                        animate={{ x: 0 }}
+                        exit={{ x: "-100%" }}
+                        transition={{ type: "tween", duration: 0.3 }}
+                        className="fixed inset-y-0 left-0 z-50 md:hidden"
                     >
-                        <motion.div
-                            className="w-64 bg-white h-full p-4"
-                            onClick={(e) => e.stopPropagation()}
-                            initial={{ x: -300 }}
-                            animate={{ x: 0 }}
-                            exit={{ x: -300 }}
-                            transition={{ type: "tween", duration: 0.3 }}
-                        >
-                            <Sidebar
-                                collapsed={collapseSidebar}
-                                currentChatId={chatIdFromParams}
-                            />
-                        </motion.div>
+                        <Sidebar
+                            collapsed={collapseSidebar}
+                            currentChatId={chatIdFromParams}
+                        />
                     </motion.div>
                 )}
             </AnimatePresence>
 
+            {/* Sidebar Desktop */}
             <div
-                className={`hidden md:flex flex-col transition-all duration-300 ease-in-out ${
+                className={`hidden md:block transition-all duration-300 ${
                     collapseSidebar ? "w-16" : "w-64"
-                } border-r border-gray-400 bg-gray-300/20`}
+                } flex-shrink-0`} // Giới hạn chiều rộng
             >
-                <div className="flex justify-end p-2">
+                <Sidebar
+                    collapsed={collapseSidebar}
+                    currentChatId={chatIdFromParams}
+                />
+            </div>
+
+            {/* Main Content */}
+            <div className="flex-1 flex flex-col overflow-hidden p-4 md:p-2 bg-gradient-to-br from-blue-100 to-purple-100">
+                {/* Header */}
+                <div className=" flex items-center justify-between">
+                    {/* <button
+                        onClick={() => setShowSidebar(!showSidebar)}
+                        className="md:hidden p-2 rounded-full hover:bg-gray-100"
+                    >
+                        <Menu size={24} />
+                    </button> */}
+
                     <button
                         onClick={() => setCollapseSidebar(!collapseSidebar)}
-                        className="p-1 hover:bg-gray-200 rounded cursor-pointer"
+                        className="hidden md:block p-2 rounded-full hover:bg-gray-300"
                     >
                         {collapseSidebar ? (
                             <ArrowRightFromLine size={24} />
@@ -161,60 +166,20 @@ const ChatPage = () => {
                         )}
                     </button>
                 </div>
-                <Sidebar
-                    collapsed={collapseSidebar}
-                    currentChatId={chatIdFromParams}
-                />
-            </div>
 
-            <div className="flex-1 flex flex-col overflow-hidden p-4 md:p-6 h-full">
-                {/* ... Header JSX ... */}
-                <div className="mb-4 flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                        <button
-                            onClick={() => setShowSidebar(true)}
-                            className="md:hidden p-2 border rounded hover:bg-gray-100 transition-colors"
-                        >
-                            <Menu />
-                        </button>
-                        <h1 className="text-xl font-bold">
-                            Chatbot Luật - Chat ID:{" "}
-                            {chatIdFromParams
-                                ? chatIdFromParams.substring(0, 8)
-                                : "Loading"}
-                            ...
-                        </h1>
-                    </div>
-
-                    <div className="flex items-center space-x-3">
-                        <span className="text-sm text-gray-600 hidden sm:block">
-                            Xin chào, {user?.username || user?.email}!
-                        </span>
-                        <button
-                            onClick={logout}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
-                            title="Đăng xuất"
-                        >
-                            <LogOut size={20} />
-                        </button>
-                    </div>
-                </div>
-
-                {/* Luôn render ChatBox nếu chatIdFromParams đã có */}
-                {/* ChatBox sẽ cần xử lý nếu retrievedInitialQuery là undefined ban đầu */}
-                {/* Hoặc nếu bạn muốn đợi hasAttemptedRetrieve là true: */}
-                {hasAttemptedRetrieve ? (
-                    <ChatBox
-                        chatId={chatIdFromParams}
-                        initialQuery={retrievedInitialQuery}
-                    />
-                ) : (
+                {/* ChatBox */}
+                {isLoadingHistory ? (
                     <div className="flex-1 flex items-center justify-center">
                         <AuthLoadingSpinner />
                     </div>
+                ) : (
+                    <ChatBox
+                        chatId={chatIdFromParams}
+                        initialMessages={initialMessages}
+                        initialQueryFromHome={retrievedInitialQuery}
+                    />
                 )}
             </div>
-
             <Toaster />
         </div>
     );

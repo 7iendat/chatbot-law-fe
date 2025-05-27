@@ -18,6 +18,7 @@ import { useAuth } from "./contexts/AuthContext";
 import { useRouteGuard } from "./hooks/useRouteGuard";
 import { AuthLoadingSpinner } from "./components/AuthLoadingSpinner";
 import { useRouter } from "next/navigation";
+import { chatApis } from "./services/chatApis";
 
 const HomePage = () => {
     const { user, logout } = useAuth();
@@ -39,14 +40,13 @@ const HomePage = () => {
         });
     }, [isLoading, isAuthorized, isAuthenticated]);
 
-    const handleStartChat = () => {
+    const handleStartChat = async () => {
         if (!initialInput.trim()) return;
-        const newChatId = `chat-${Date.now()}-${Math.random()
-            .toString(36)
-            .substring(2, 9)}`;
 
         // Lưu câu hỏi ban đầu vào sessionStorage
         try {
+            const res = await chatApis.createChat();
+            const newChatId = res.chat_id;
             // Đảm bảo chỉ lưu nếu có nội dung
             if (initialInput.trim()) {
                 sessionStorage.setItem(
@@ -57,6 +57,8 @@ const HomePage = () => {
                     `HomePage: Stored initial query for ${newChatId} in sessionStorage.`
                 );
             }
+            // Điều hướng đến URL sạch
+            router.push(`/chat/${newChatId}`);
         } catch (error) {
             console.error(
                 "HomePage: Failed to set initial query in sessionStorage:",
@@ -64,9 +66,6 @@ const HomePage = () => {
             );
             // Cân nhắc xử lý lỗi, ví dụ hiển thị thông báo cho người dùng
         }
-
-        // Điều hướng đến URL sạch
-        router.push(`/chat/${newChatId}`);
     };
 
     const handleKeyPress = (e: KeyboardEvent<HTMLTextAreaElement>) => {
