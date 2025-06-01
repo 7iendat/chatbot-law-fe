@@ -9,8 +9,9 @@ import React, {
     useMemo,
 } from "react";
 import { useRouter } from "next/navigation";
-import { authApi } from "../services/authApis";
+import { authApi } from "../services/authApis"; // Import UserApiResponse
 
+// Interface User có thể giống UserApiResponse hoặc là một phiên bản đơn giản hơn cho UI
 interface User {
     email: string;
     username?: string;
@@ -20,10 +21,9 @@ interface User {
 
 interface AuthContextType {
     user: User | null;
-    token: string | null;
     loading: boolean;
-    login: (token: string, userData: User) => Promise<void>;
-    logout: () => void;
+    login: (userData: User) => void; // Chỉ cần userData, không cần Promise nếu không có async
+    logout: () => Promise<void>; // logout nên là async để chờ API
     isAuthenticated: boolean;
     isInitialized: boolean;
 }
@@ -34,226 +34,169 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     children,
 }) => {
     const [user, setUser] = useState<User | null>(null);
-    const [token, setToken] = useState<string | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(true); // True khi context đang khởi tạo hoặc fetch user
     const [isInitialized, setIsInitialized] = useState(false);
     const router = useRouter();
 
-    // Memoize isAuthenticated for better performance
-    const isAuthenticated = useMemo(() => !!token && !!user, [token, user]);
+    const isAuthenticated = useMemo(() => !!user, [user]);
 
-    // Check authentication on mount
     useEffect(() => {
-        const initAuth = async () => {
+        const initializeAuth = async () => {
+            console.log("AuthContext: Initializing authentication state...");
+            setLoading(true);
             try {
-                // Check if we're on the client side
-                if (typeof window === "undefined") {
-                    setLoading(false);
-                    setIsInitialized(true);
-                    return;
-                }
+                // Gọi API để lấy thông tin user hiện tại.
+                // API này sẽ sử dụng access_token_cookie mà trình duyệt tự gửi.
+                const response = await authApi.getCurrentUser(); // Trả về { user: UserApiResponse | null }
+                console.log(
+                    "AuthContext: Fetched current user response:",
+                    response
+                );
 
-                const storedToken = localStorage.getItem("accessToken");
-                const storedUser = localStorage.getItem("userData");
-
-                console.log("Stored token:", !!storedToken);
-                console.log("Stored user:", !!storedUser);
-
-                // If both token and user data exist
-                if (storedToken && storedUser) {
-                    try {
-                        const userData = JSON.parse(storedUser);
-
-                        // Optional: Validate token with API
-                        try {
-                            const isValid = await authApi.validateToken(
-                                storedToken
-                            );
-                            console.log("Token validation result:", isValid);
-
-                            if (isValid.valid) {
-                                setToken(storedToken);
-                                setUser(userData);
-                                console.log(
-                                    "Authentication restored successfully"
-                                );
-                            } else {
-                                // Token invalid, clear storage
-                                console.log("Token invalid, clearing storage");
-                                localStorage.removeItem("accessToken");
-                                localStorage.removeItem("userData");
-                                setToken(null);
-                                setUser(null);
-                            }
-                        } catch (apiError) {
-                            console.error("Token validation failed:", apiError);
-                            // If API call fails, assume token is still valid for now
-                            setToken(storedToken);
-                            setUser(userData);
-                            console.log(
-                                "API validation failed, but keeping local auth"
-                            );
-                        }
-                    } catch (parseError) {
-                        console.error("Error parsing user data:", parseError);
-                        // Clear corrupted data
-                        localStorage.removeItem("accessToken");
-                        localStorage.removeItem("userData");
-                        setToken(null);
-                        setUser(null);
+                if (response && response.user) {
+                    const fetchedUser: User = {
+                        // Chuyển đổi từ UserApiResponse sang User nếu cần
+                        email: response.user.email,
+                        username: response.user.username,
+                        role: response.user.role,
+                        avatar_url: response.user.avatar_url,
+                    };
+                    setUser(fetchedUser);
+                    if (typeof window !== "undefined") {
+                        localStorage.setItem(
+                            "userData",
+                            JSON.stringify(fetchedUser)
+                        );
+                        console.log(
+                            "AuthContext: User data restored to state and localStorage."
+                        );
                     }
                 } else {
-                    // No token or user data found
-                    console.log("No stored authentication found");
-                    if (storedToken) localStorage.removeItem("accessToken");
-                    if (storedUser) localStorage.removeItem("userData");
-                    setToken(null);
                     setUser(null);
+                    if (typeof window !== "undefined") {
+                        localStorage.removeItem("userData");
+                        console.log(
+                            "AuthContext: No valid user session found, userData cleared from localStorage."
+                        );
+                    }
                 }
             } catch (error) {
-                console.error("Auth initialization error:", error);
-                // Clear everything on error
+                console.warn(
+                    "AuthContext: Error during initial auth check (fetching current user), assuming logged out.",
+                    error
+                );
+                setUser(null);
                 if (typeof window !== "undefined") {
-                    localStorage.removeItem("accessToken");
                     localStorage.removeItem("userData");
                 }
-                setToken(null);
-                setUser(null);
             } finally {
                 setLoading(false);
                 setIsInitialized(true);
-                console.log(
-                    "AuthContext Initialized. Loading:",
-                    false,
-                    "IsAuthenticated:",
-                    !!token && !!user,
-                    "User:",
-                    user
-                );
+                // Log sau khi state đã được cập nhật (có thể dùng một effect riêng để log nếu cần độ chính xác cao hơn)
+                // console.log("AuthContext: Initialization complete.", {
+                //     isLoading: false, // Sẽ là false
+                //     isInitialized: true, // Sẽ là true
+                //     isAuthenticated: !!user, // Giá trị user ở đây có thể là của lần render trước
+                //     currentUserState: user, // Giá trị user ở đây có thể là của lần render trước
+                // });
             }
         };
 
-        initAuth();
-    }, []);
+        initializeAuth();
+    }, []); // Chạy một lần khi provider mount
 
-    // Handle redirect after authentication state changes
-    // useEffect(() => {
-    //     if (!isInitialized || loading) {
-    //         return; // Don't redirect until fully initialized
-    //     }
+    // Effect để log trạng thái sau khi initializeAuth hoàn tất và state đã cập nhật
+    useEffect(() => {
+        if (isInitialized) {
+            console.log("AuthContext: State after initialization.", {
+                isLoading: loading, // Nên là false
+                isInitialized, // Nên là true
+                isAuthenticated, // Dựa trên user state mới
+                user, // User state mới
+            });
+        }
+    }, [isInitialized, loading, isAuthenticated, user]);
 
-    //     if (typeof window === "undefined") {
-    //         return; // Don't redirect on server side
-    //     }
-
-    //     const currentPath = window.location.pathname;
-    //     const publicPaths = ["/welcome", "/login", "/register"];
-    //     const isPublicPath = publicPaths.includes(currentPath);
-
-    //     // If not authenticated and not on a public path, redirect to welcome
-    //     if (!isAuthenticated && !isPublicPath) {
-    //         console.log(
-    //             "Redirecting to welcome page - no valid authentication"
-    //         );
-    //         router.replace("/welcome");
-    //     }
-
-    //     // If authenticated and on login/register page, redirect to home
-    //     if (
-    //         isAuthenticated &&
-    //         (currentPath === "/login" || currentPath === "/register")
-    //     ) {
-    //         console.log(
-    //             "User authenticated, redirecting from public page to home"
-    //         );
-    //         router.replace("/");
-    //     }
-    // }, [isInitialized, loading, isAuthenticated, router]);
-
+    // Redirect logic
     useEffect(() => {
         if (!isInitialized || loading) {
-            return;
+            return; // Chờ context ổn định
         }
         if (typeof window === "undefined") {
-            return;
+            return; // Chỉ chạy ở client
         }
 
         const currentPath = window.location.pathname;
 
-        // CHỈ xử lý redirect KHI ĐÃ XÁC THỰC mà vào trang login/register
         if (
             isAuthenticated &&
             (currentPath === "/login" ||
                 currentPath === "/register" ||
-                currentPath === "/welcome") // Thêm welcome
+                currentPath === "/welcome")
         ) {
             console.log(
-                "AuthContext: Authenticated. Redirecting from public/login/register/welcome page. User role:",
-                user?.role
+                `AuthContext: Authenticated user (role: ${user?.role}) on public page (${currentPath}). Redirecting...`
             );
             if (user?.role === "admin") {
                 router.replace("/admin/dashboard");
             } else {
-                router.replace("/"); // Hoặc trang dashboard của user thường
+                router.replace("/"); // Hoặc trang dashboard mặc định của user
             }
         }
         // Việc redirect NẾU KHÔNG XÁC THỰC sẽ do useRouteGuard ở từng trang đảm nhiệm.
-        // Loại bỏ đoạn:
-        // if (!isAuthenticated && !isPublicPath) {
-        //     router.replace("/welcome");
-        // }
-    }, [isInitialized, loading, isAuthenticated, user, router]); // Thêm user vào dependencies
+    }, [isInitialized, loading, isAuthenticated, user, router]);
 
-    const login = useCallback(
-        async (newToken: string, userData: User): Promise<void> => {
-            if (typeof window !== "undefined") {
-                localStorage.setItem("accessToken", newToken);
-                localStorage.setItem("userData", JSON.stringify(userData));
-            }
-
-            // Update state immediately
-            setToken(newToken);
-            setUser(userData);
-
-            console.log("User logged in successfully", {
-                token: !!newToken,
-                user: !!userData,
-            });
-
-            // Return a promise that resolves after state updates
-            return new Promise((resolve) => {
-                // Use requestAnimationFrame to ensure state has been updated
-                // requestAnimationFrame(() => {
-                //     resolve();
-                // });
-                setTimeout(resolve, 0);
-            });
-        },
-        []
-    );
-
-    const logout = useCallback(() => {
+    // Hàm login được gọi sau khi backend đã xác minh và set HttpOnly cookies
+    const login = useCallback((userData: User): void => {
+        // Backend đã set cookies. Frontend chỉ cần cập nhật state và localStorage cho userData.
+        setUser(userData);
         if (typeof window !== "undefined") {
-            localStorage.removeItem("accessToken");
-            localStorage.removeItem("userData");
+            localStorage.setItem("userData", JSON.stringify(userData));
         }
-        setToken(null);
-        setUser(null);
-        console.log("User logged out");
-        router.replace("/welcome");
+        console.log(
+            "AuthContext: User logged in. State and localStorage updated.",
+            { user: userData }
+        );
+        // Không cần Promise nếu không có thao tác bất đồng bộ nào ở đây
+    }, []);
+
+    const logout = useCallback(async () => {
+        console.log("AuthContext: Initiating logout...");
+        setLoading(true);
+        try {
+            await authApi.logout(); // Gọi API backend để xóa HttpOnly cookies
+            console.log(
+                "AuthContext: Logout API call successful. Cookies should be cleared by backend."
+            );
+        } catch (error) {
+            console.error(
+                "AuthContext: Logout API call failed. Proceeding with client-side cleanup.",
+                error
+            );
+            // Dù API lỗi, vẫn nên clear state và localStorage ở client
+        } finally {
+            setUser(null);
+            if (typeof window !== "undefined") {
+                localStorage.removeItem("userData");
+            }
+            setLoading(false); // Kết thúc loading sau khi đã clear state
+            console.log(
+                "AuthContext: Client-side state and localStorage cleared for logout."
+            );
+            router.replace("/welcome");
+        }
     }, [router]);
 
     const value = useMemo(
         () => ({
             user,
-            token,
             loading,
             login,
             logout,
             isAuthenticated,
             isInitialized,
         }),
-        [user, token, loading, login, logout, isAuthenticated, isInitialized]
+        [user, loading, login, logout, isAuthenticated, isInitialized]
     );
 
     return (

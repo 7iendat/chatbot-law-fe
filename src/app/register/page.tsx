@@ -33,18 +33,6 @@ export default function RegisterPage() {
         setIsLoaded(true);
     }, []);
 
-    const registerApi = async (email: string, password: string) => {
-        return new Promise<void>((resolve, reject) => {
-            setTimeout(() => {
-                if (email !== "admin@gmail.com") {
-                    resolve();
-                } else {
-                    reject(new Error("Email đã được đăng ký."));
-                }
-            }, 1000);
-        });
-    };
-
     const isValidEmail = (email: string) => {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         return emailRegex.test(email);
@@ -278,7 +266,7 @@ export default function RegisterPage() {
                             }}
                             onFocus={() => setFocusedField("username")}
                             onBlur={() => setFocusedField("")}
-                            placeholder="Username"
+                            placeholder="Tên người dùng"
                             className={`w-full p-4 pl-12 border rounded-xl outline-none transition-all duration-300 bg-gray-50/50 ${
                                 focusedField === "username"
                                     ? "border-green-400 bg-white shadow-lg ring-4 ring-green-100 transform scale-[1.02]"

@@ -16,12 +16,14 @@ import { useAuth } from "@/app/contexts/AuthContext";
 import { useRouteGuard } from "@/app/hooks/useRouteGuard";
 import { AuthLoadingSpinner } from "@/app/components/AuthLoadingSpinner";
 import { chatApis, ApiChatHistoryMessage } from "@/app/services/chatApis";
+import { useTheme } from "@/app/contexts/ThemeContext";
 
 const ChatPage = () => {
     const { user, logout } = useAuth();
     const params = useParams();
     const router = useRouter();
     const chatIdFromParams = params.chatId as string;
+    const { effectiveTheme } = useTheme();
 
     const [initialMessages, setInitialMessages] = useState<
         ApiChatHistoryMessage[] | undefined
@@ -113,7 +115,13 @@ const ChatPage = () => {
     }
 
     return (
-        <div className="flex h-screen overflow-hidden bg-white text-black">
+        <div
+            className={`flex h-screen overflow-hidden ${
+                effectiveTheme === "light"
+                    ? "bg-white text-black"
+                    : "bg-black text-white  "
+            }`}
+        >
             {/* Sidebar Mobile */}
             <AnimatePresence>
                 {showSidebar && (
@@ -145,7 +153,13 @@ const ChatPage = () => {
             </div>
 
             {/* Main Content */}
-            <div className="flex-1 flex flex-col overflow-hidden p-4 md:p-2 bg-gradient-to-br from-blue-100 to-purple-100">
+            <div
+                className={`flex-1 flex flex-col overflow-hidden p-4 md:p-2 ${
+                    effectiveTheme === "light"
+                        ? "bg-gradient-to-br from-blue-100 to-purple-100"
+                        : "bg-gradient-to-br from-gray-900 to-gray-700"
+                }`}
+            >
                 {/* Header */}
                 <div className=" flex items-center justify-between">
                     {/* <button
@@ -157,7 +171,11 @@ const ChatPage = () => {
 
                     <button
                         onClick={() => setCollapseSidebar(!collapseSidebar)}
-                        className="hidden md:block p-2 rounded-full hover:bg-gray-300"
+                        className={`hidden md:block p-2 rounded-full cursor-pointer ${
+                            effectiveTheme === "light"
+                                ? "hover:bg-gray-300"
+                                : "hover:bg-gray-600"
+                        }`}
                     >
                         {collapseSidebar ? (
                             <ArrowRightFromLine size={24} />

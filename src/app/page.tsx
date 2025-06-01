@@ -19,6 +19,7 @@ import { useRouteGuard } from "./hooks/useRouteGuard";
 import { AuthLoadingSpinner } from "./components/AuthLoadingSpinner";
 import { useRouter } from "next/navigation";
 import { chatApis } from "./services/chatApis";
+import { useTheme } from "./contexts/ThemeContext";
 
 const HomePage = () => {
     const { user, logout } = useAuth();
@@ -26,7 +27,7 @@ const HomePage = () => {
     const [showSidebar, setShowSidebar] = useState(false);
     const [collapseSidebar, setCollapseSidebar] = useState(false);
     const [initialInput, setInitialInput] = useState("");
-
+    const { effectiveTheme } = useTheme();
     const { isAuthorized, isLoading, isAuthenticated } = useRouteGuard({
         requireAuth: true,
         redirectTo: "/welcome",
@@ -90,7 +91,13 @@ const HomePage = () => {
     }
 
     return (
-        <div className="flex h-screen flex-col overflow-hidden md:flex-row bg-white text-black">
+        <div
+            className={`flex h-screen flex-col overflow-hidden md:flex-row ${
+                effectiveTheme === "light"
+                    ? "text-black bg-white"
+                    : "bg-black text-white"
+            } `}
+        >
             {/* Sidebar - mobile (overlay) */}
             <AnimatePresence>
                 {showSidebar && (
@@ -124,7 +131,11 @@ const HomePage = () => {
                 <div className="flex justify-end p-2">
                     <button
                         onClick={() => setCollapseSidebar(!collapseSidebar)}
-                        className="p-1 hover:bg-gray-200 rounded cursor-pointer"
+                        className={`p-1 ${
+                            effectiveTheme === "light"
+                                ? "hover:bg-gray-200"
+                                : "hover:bg-gray-700"
+                        } rounded cursor-pointer`}
                     >
                         {collapseSidebar ? (
                             <ArrowRightFromLine size={24} />
@@ -137,14 +148,26 @@ const HomePage = () => {
             </div>
 
             {/* Main content - Welcome and Initial Input */}
-            <div className="flex-1 flex flex-col items-center justify-center p-4 md:p-6 h-full bg-gradient-to-br from-blue-50 via-white to-purple-50">
+            <div
+                className={`flex-1 flex flex-col items-center justify-center p-4 md:p-6 h-full`}
+            >
                 <div className="absolute top-4 right-4 md:top-6 md:right-6 flex items-center space-x-3 z-10">
-                    <span className="text-sm text-gray-600 hidden sm:block">
+                    <span
+                        className={`text-sm hidden sm:block ${
+                            effectiveTheme === "light"
+                                ? "text-gray-600"
+                                : "text-gray-300"
+                        }`}
+                    >
                         Xin chào, {user?.username || user?.email}!
                     </span>
                     <button
                         onClick={logout}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                        className={`p-2 text-red-600 ${
+                            effectiveTheme === "light"
+                                ? "hover:bg-red-50"
+                                : "hover:bg-red-50/15"
+                        } rounded transition-colors cursor-pointer`}
                         title="Đăng xuất"
                     >
                         <LogOut size={20} />
@@ -171,14 +194,24 @@ const HomePage = () => {
                         </div>
                     </div>
 
-                    <div className="mt-12 w-full bg-white/80 backdrop-blur-sm border border-white/50 rounded-2xl shadow-2xl p-6 transition-all duration-300 hover:shadow-3xl">
+                    <div
+                        className={`mt-12 w-full ${
+                            effectiveTheme === "light"
+                                ? "bg-white/80"
+                                : "bg-gray-800"
+                        } backdrop-blur-sm border border-white/50 rounded-2xl shadow-2xl p-6 transition-all duration-300 hover:shadow-3xl`}
+                    >
                         <textarea
                             value={initialInput}
                             onChange={(e) => setInitialInput(e.target.value)}
                             onKeyDown={handleKeyPress}
                             placeholder="Nhập câu hỏi đầu tiên của bạn ở đây..."
                             rows={2}
-                            className="w-full border-2 border-gray-200 rounded-xl px-5 py-4 focus:outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 resize-none text-base transition-all duration-300 bg-white/90 backdrop-blur-sm scrollbar scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-gray-100"
+                            className={`w-full border-2 border-gray-200 rounded-xl px-5 py-4 focus:outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 resize-none text-base transition-all duration-300 ${
+                                effectiveTheme === "light"
+                                    ? "bg-white/90"
+                                    : "bg-gray-600"
+                            } backdrop-blur-sm scrollbar scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-gray-100`}
                             style={{ minHeight: "60px", maxHeight: "150px" }}
                         />
                         <div className="mt-4 flex justify-end">

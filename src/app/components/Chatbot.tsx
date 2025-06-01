@@ -1,15 +1,33 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Send, Upload, User, Bot, Sparkles, Loader2 } from "lucide-react";
-import { chatApis, ApiChatHistoryMessage } from "../services/chatApis";
+import {
+    Send,
+    Upload,
+    User,
+    Bot,
+    Sparkles,
+    Loader2,
+    ExternalLink,
+} from "lucide-react";
+import {
+    chatApis,
+    ApiChatHistoryMessage,
+    StreamDataPayload,
+    SourcesPayload,
+    StreamErrorPayload,
+    SourceDocumentUI,
+} from "../services/chatApis"; // Đảm bảo đường dẫn đúng
 import toast from "react-hot-toast";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useTheme } from "../contexts/ThemeContext"; // Đảm bảo đường dẫn đúng
 
 type UIMessage = ApiChatHistoryMessage & {
-    id?: string;
+    id: string;
     isError?: boolean;
+    isStreaming?: boolean; // Sẽ dùng để biết tin nhắn cụ thể có đang stream không
+    sources?: SourceDocumentUI[];
 };
 
 interface ChatBoxProps {
@@ -18,6 +36,8 @@ interface ChatBoxProps {
     initialQueryFromHome?: string;
 }
 
+// const STREAM_UPDATE_INTERVAL = 50; // Không cần nữa nếu cập nhật trực tiếp
+
 export default function ChatBox({
     chatId,
     initialMessages,
@@ -25,98 +45,222 @@ export default function ChatBox({
 }: ChatBoxProps) {
     const [messages, setMessages] = useState<UIMessage[]>([]);
     const [input, setInput] = useState("");
-    const [isSending, setIsSending] = useState(false);
-    const [isBotTyping, setIsBotTyping] = useState(false);
+    const [isSending, setIsSending] = useState(false); // Dùng để disable input/button send
+    // isBotStreaming không cần ở state nữa, sẽ dựa vào message cuối cùng
+    // const [isBotStreaming, setIsBotStreaming] = useState(false);
+
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const messagesContainerRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [initialQueryProcessed, setInitialQueryProcessed] = useState(false);
+    const currentEventSourceRef = useRef<EventSource | null>(null);
+    const { effectiveTheme } = useTheme();
 
-    const messagesContainerRef = useRef<HTMLDivElement>(null); // Thêm ref này cho vùng chứa tin nhắn
+    // Không cần các ref gom token và timer phức tạp nữa
+    // const accumulatedTokensRef = useRef<string>("");
+    // const lastTokenUpdateTimeRef = useRef<number>(0);
+    // const streamTimerRef = useRef<NodeJS.Timeout | null>(null);
 
     const scrollToBottom = useCallback(
         (behavior: "smooth" | "auto" = "smooth") => {
             const container = messagesContainerRef.current;
             if (container) {
-                // Chỉ cuộn mượt nếu người dùng đang ở gần cuối hoặc là tin nhắn mới của user
                 const { scrollTop, scrollHeight, clientHeight } = container;
                 const isUserAtBottom =
-                    scrollHeight - scrollTop - clientHeight < 100; // Ngưỡng 100px
+                    scrollHeight - scrollTop - clientHeight < 200; // Ngưỡng có thể điều chỉnh
+                const lastMessage = messages[messages.length - 1];
 
-                if (behavior === "auto" || isUserAtBottom) {
-                    messagesEndRef.current?.scrollIntoView({ behavior });
+                // Luôn scroll nếu tin nhắn cuối là của bot và đang stream, hoặc nếu user ở gần cuối
+                const shouldScroll =
+                    behavior === "auto" ||
+                    isUserAtBottom ||
+                    (lastMessage?.role === "assistant" &&
+                        lastMessage?.isStreaming);
+
+                if (shouldScroll) {
+                    messagesEndRef.current?.scrollIntoView({
+                        behavior,
+                        block: "end",
+                    });
                 }
             }
         },
-        []
+        [messages] // messages là dependency chính
     );
 
-    const sendMessageAndGetResponse = useCallback(
+    const generateId = () =>
+        `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    const sendMessageAndStream = useCallback(
         async (messageContent: string, currentChatId: string) => {
             if (!currentChatId) {
-                console.error(
-                    "ChatBox: chatId is undefined in sendMessageAndGetResponse"
-                );
                 toast.error("Lỗi: Không xác định được phiên chat.");
                 return;
             }
             if (!messageContent.trim()) return;
 
+            // Đóng EventSource cũ nếu có
+            if (currentEventSourceRef.current) {
+                console.log(
+                    "[ChatBox] Closing previous EventSource before new send."
+                );
+                currentEventSourceRef.current.close();
+                currentEventSourceRef.current = null;
+            }
+
             const userMessage: UIMessage = {
-                id: `user-${Date.now()}-${Math.random()}`, // Thêm Math.random() để tăng tính duy nhất
+                id: `user-${generateId()}`,
                 role: "user",
                 content: messageContent,
                 timestamp: new Date().toISOString(),
             };
 
-            // Cập nhật messages ngay lập tức với tin nhắn người dùng
-            setMessages((prev) => [...prev, userMessage]);
+            const botMessageId = `bot-${generateId()}`;
+            const placeholderBotMessage: UIMessage = {
+                id: botMessageId,
+                role: "assistant",
+                content: "", // Bắt đầu với content rỗng
+                timestamp: new Date().toISOString(),
+                isStreaming: true, // Đánh dấu là đang stream
+                sources: [],
+            };
 
-            // Không clear input ở đây nữa
-            // if (input === messageContent) {
-            //     setInput("");
-            // }
+            setMessages((prev) => [
+                ...prev,
+                userMessage,
+                placeholderBotMessage,
+            ]);
+            if (input === messageContent) {
+                // Chỉ xóa input nếu nội dung gửi đi là từ input hiện tại
+                setInput("");
+            }
+            setIsSending(true); // Disable nút gửi và input
 
-            setIsBotTyping(true);
-            setIsSending(true); // Đặt isSending true sau khi setMessages cho user
+            currentEventSourceRef.current = await chatApis.streamChatResponse(
+                currentChatId,
+                messageContent,
+                (payload: StreamDataPayload) => {
+                    // onToken
+                    if (payload.token) {
+                        setMessages((prevMessages) =>
+                            prevMessages.map((msg) =>
+                                msg.id === botMessageId
+                                    ? {
+                                          ...msg,
+                                          content: msg.content + payload.token, // Nối token mới
+                                          isStreaming: !payload.is_final, // Nếu is_final là true, isStreaming sẽ là false
+                                          isError: false,
+                                      }
+                                    : msg
+                            )
+                        );
+                    }
+                    // Nếu backend gửi is_final mà không có token (chỉ là tín hiệu kết thúc)
+                    if (payload.is_final) {
+                        setMessages((prevMessages) =>
+                            prevMessages.map((msg) =>
+                                msg.id === botMessageId
+                                    ? {
+                                          ...msg,
+                                          isStreaming: false,
+                                          timestamp: new Date().toISOString(),
+                                      } // Đảm bảo isStreaming là false
+                                    : msg
+                            )
+                        );
+                        // Không cần gọi setIsSending(false) ở đây, onEnd sẽ làm
+                    }
+                },
+                (payload: SourcesPayload) => {
+                    // onSources
+                    setMessages((prevMessages) =>
+                        prevMessages.map((msg) =>
+                            msg.id === botMessageId
+                                ? { ...msg, sources: payload.sources }
+                                : msg
+                        )
+                    );
+                },
+                (endPayload?: any) => {
+                    // onEnd
+                    console.log("[ChatBox] Stream ended by server.");
+                    setMessages((prevMessages) =>
+                        prevMessages.map((msg) =>
+                            msg.id === botMessageId
+                                ? {
+                                      ...msg,
+                                      isStreaming: false,
+                                      timestamp: new Date().toISOString(),
+                                  } // Đảm bảo tin nhắn cuối cùng không còn streaming
+                                : msg
+                        )
+                    );
+                    setIsSending(false);
+                    if (currentEventSourceRef.current) {
+                        // streamChatResponse đã tự close khi nhận 'end_stream'
+                        currentEventSourceRef.current = null;
+                    }
+                },
+                (errorPayload: StreamErrorPayload) => {
+                    // onError
+                    console.error(
+                        "[ChatBox] Stream error from server:",
+                        errorPayload
+                    );
+                    toast.error(
+                        errorPayload.error || "Lỗi khi nhận dữ liệu từ bot."
+                    );
+                    setMessages((prevMessages) =>
+                        prevMessages.map((msg) =>
+                            msg.id === botMessageId
+                                ? {
+                                      ...msg,
+                                      content:
+                                          msg.content +
+                                          `\n\n⚠️ Lỗi: ${
+                                              errorPayload.error ||
+                                              "Lỗi không xác định từ server."
+                                          }`,
+                                      isError: true,
+                                      isStreaming: false,
+                                      timestamp: new Date().toISOString(),
+                                  }
+                                : msg
+                        )
+                    );
+                    setIsSending(false);
+                    if (currentEventSourceRef.current) {
+                        currentEventSourceRef.current.close(); // Đảm bảo đóng khi có lỗi
+                        currentEventSourceRef.current = null;
+                    }
+                },
+                () => {
+                    // onOpen
+                    console.log("[ChatBox] EventSource connection opened.");
+                }
+            );
 
-            try {
-                const apiResponse = await chatApis.sendChatMessage(
-                    currentChatId,
-                    messageContent
-                );
-                const botReply: UIMessage = {
-                    id: `bot-${Date.now()}-${Math.random()}`, // Thêm Math.random()
-                    role: "assistant",
-                    content: apiResponse.answer, // Đảm bảo apiResponse.answer có giá trị
-                    timestamp: new Date().toISOString(),
-                };
-                setIsBotTyping(false); // Đặt isBotTyping false sau khi nhận được phản hồi
-                setMessages((prev) => [...prev, botReply]);
-            } catch (error: any) {
-                console.error(
-                    "ChatBox: Error sending message or getting bot response:",
-                    error
-                );
-                const errorMessage =
-                    error?.message ||
-                    "Xin lỗi, đã có lỗi xảy ra khi gửi tin nhắn.";
-                toast.error(errorMessage);
-                const errorReply: UIMessage = {
-                    id: `bot-error-${Date.now()}-${Math.random()}`, // Thêm Math.random()
-                    role: "assistant",
-                    content: `Đã xảy ra lỗi: ${errorMessage}. Vui lòng thử lại.`,
-                    timestamp: new Date().toISOString(),
-                    isError: true,
-                };
-                setIsBotTyping(false); // Đặt isBotTyping false khi có lỗi
-                setMessages((prev) => [...prev, errorReply]);
-            } finally {
-                setIsBotTyping(false);
+            if (!currentEventSourceRef.current) {
+                console.error("[ChatBox] Failed to initialize EventSource.");
                 setIsSending(false);
+                setMessages((prev) =>
+                    prev.map((m) =>
+                        m.id === botMessageId
+                            ? {
+                                  ...m,
+                                  content: "Lỗi kết nối streaming.",
+                                  isError: true,
+                                  isStreaming: false,
+                              }
+                            : m
+                    )
+                );
+                toast.error(
+                    "Không thể thiết lập kết nối streaming với server."
+                );
             }
         },
-        [] // Dependencies: các state setters (setMessages, setIsBotTyping, setIsSending) là stable.
-        // chatApis cũng là stable import.
+        [input] // Giữ lại input để có thể reset nếu messageContent === input
     );
 
     useEffect(() => {
@@ -125,26 +269,23 @@ export default function ChatBox({
             initialMessages.length > 0 &&
             messages.length === 0
         ) {
-            // Thêm messages.length === 0 để tránh ghi đè
-            console.log(
-                "[ChatBox] Setting initial messages from props:",
-                initialMessages
-            );
             const uiInitialMessages: UIMessage[] = initialMessages.map(
-                (msg, index) => ({
+                (msg) => ({
                     ...msg,
-                    id: `initial-${msg.timestamp}-${index}-${Math.random()}`,
+                    id: msg.id || `initial-${generateId()}`,
+                    sources: msg.sources || [],
+                    isStreaming: false, // Tin nhắn ban đầu không bao giờ streaming
                 })
             );
             setMessages(uiInitialMessages);
-            // Không set initialQueryProcessed ở đây nếu initialMessages được dùng
-            // setInitialQueryProcessed(true); // Có thể bạn muốn logic khác ở đây
         } else if (initialQueryFromHome && !initialQueryProcessed && chatId) {
-            console.log(
-                `[ChatBox] Processing initialQueryFromHome for chatId ${chatId}: "${initialQueryFromHome}"`
-            );
-            // Đảm bảo không gọi setInput("") cho initialQueryFromHome trong sendMessageAndGetResponse
-            sendMessageAndGetResponse(initialQueryFromHome, chatId);
+            if (
+                messages.length === 0 ||
+                messages[messages.length - 1]?.role !== "user" ||
+                messages[messages.length - 1]?.content !== initialQueryFromHome
+            ) {
+                sendMessageAndStream(initialQueryFromHome, chatId);
+            }
             setInitialQueryProcessed(true);
         }
     }, [
@@ -152,37 +293,51 @@ export default function ChatBox({
         initialQueryFromHome,
         initialQueryProcessed,
         chatId,
-        sendMessageAndGetResponse,
-        messages.length, // Thêm để check điều kiện messages.length === 0
+        sendMessageAndStream,
+        messages.length, // Thêm messages.length để effect chạy lại khi messages thay đổi
+        // giúp xử lý trường hợp initialMessages được load sau
     ]);
 
     const handleSendMessageFromInput = useCallback(async () => {
         if (!input.trim() || isSending) return;
-        const messageToSend = input; // Lưu lại giá trị input hiện tại
-        setInput(""); // Clear input ngay lập tức
-        await sendMessageAndGetResponse(messageToSend, chatId);
-    }, [input, isSending, chatId, sendMessageAndGetResponse]); // Dependencies vẫn giữ nguyên
+        await sendMessageAndStream(input, chatId);
+    }, [input, isSending, chatId, sendMessageAndStream]);
 
-    // ... các useEffect và hàm khác không thay đổi ...
     useEffect(() => {
+        // Chỉ cuộn tự động nếu tin nhắn cuối là của bot và đang stream
+        // hoặc nếu có tin nhắn mới được thêm vào (messages.length thay đổi)
         const lastMessage = messages[messages.length - 1];
-        if (lastMessage) {
-            // Cuộn "auto" (ngay lập tức) nếu là tin nhắn của user
-            // Cuộn "smooth" nếu là tin nhắn của bot và user đang ở cuối
-            scrollToBottom(lastMessage.role === "user" ? "auto" : "smooth");
+        if (lastMessage?.role === "assistant" && lastMessage?.isStreaming) {
+            scrollToBottom("smooth");
+        } else {
+            scrollToBottom("auto"); // Cuộn "auto" cho tin nhắn user hoặc khi bot đã trả lời xong
         }
-    }, [messages, scrollToBottom]);
+    }, [messages, scrollToBottom]); // Phụ thuộc vào messages
 
     useEffect(() => {
         if (textareaRef.current) {
             textareaRef.current.style.height = "auto";
-            textareaRef.current.style.height =
-                textareaRef.current.scrollHeight + "px";
+            textareaRef.current.style.height = `${Math.min(
+                textareaRef.current.scrollHeight,
+                150
+            )}px`; // Giới hạn maxHeight
         }
     }, [input]);
 
+    useEffect(() => {
+        return () => {
+            if (currentEventSourceRef.current) {
+                console.log(
+                    "[ChatBox] Unmounting, closing active EventSource."
+                );
+                currentEventSourceRef.current.close();
+                currentEventSourceRef.current = null;
+            }
+        };
+    }, []);
+
     const handleKeyPress = (e: React.KeyboardEvent) => {
-        if (e.key === "Enter" && !e.shiftKey) {
+        if (e.key === "Enter" && !e.shiftKey && !isSending) {
             e.preventDefault();
             handleSendMessageFromInput();
         }
@@ -195,26 +350,47 @@ export default function ChatBox({
                 minute: "2-digit",
             });
         } catch (error) {
-            console.warn("Invalid timestamp for formatTime:", isoTimestamp);
-            return "Invalid date";
+            return ""; // Trả về rỗng nếu ngày không hợp lệ
         }
     };
 
     const TypingIndicator = () => (
-        // ... (như cũ)
-        <div className="flex items-end gap-2 justify-start mb-5">
+        <div
+            className="flex items-end gap-2 justify-start mb-5 animate-slide-up"
+            style={{ animationFillMode: "forwards" }}
+        >
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white shadow-lg">
                 <Bot size={16} />
             </div>
-            <div className="bg-gray-100 px-4 py-3 rounded-2xl shadow-sm border">
+            <div
+                className={`px-4 py-3 rounded-2xl shadow-sm border ${
+                    effectiveTheme === "light"
+                        ? "bg-gray-100 border-gray-200"
+                        : "bg-gray-600 border-gray-500"
+                }`}
+            >
                 <div className="flex space-x-1">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
                     <div
-                        className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                        className={`w-2 h-2 rounded-full animate-bounce ${
+                            effectiveTheme === "light"
+                                ? "bg-gray-400"
+                                : "bg-gray-300"
+                        }`}
+                    ></div>
+                    <div
+                        className={`w-2 h-2 rounded-full animate-bounce ${
+                            effectiveTheme === "light"
+                                ? "bg-gray-400"
+                                : "bg-gray-300"
+                        }`}
                         style={{ animationDelay: "0.1s" }}
                     ></div>
                     <div
-                        className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                        className={`w-2 h-2 rounded-full animate-bounce ${
+                            effectiveTheme === "light"
+                                ? "bg-gray-400"
+                                : "bg-gray-300"
+                        }`}
                         style={{ animationDelay: "0.2s" }}
                     ></div>
                 </div>
@@ -222,38 +398,42 @@ export default function ChatBox({
         </div>
     );
 
-    // Kiểm tra showWelcomeScreen cẩn thận hơn
+    // Biến để quyết định có hiển thị TypingIndicator không
+    const shouldShowTypingIndicator =
+        isSending && // Chỉ hiển thị khi đang chờ phản hồi từ server
+        messages.length > 0 &&
+        messages[messages.length - 1]?.role === "assistant" && // Tin nhắn cuối là của bot (placeholder)
+        messages[messages.length - 1]?.isStreaming === true && // Và nó đang trong trạng thái chờ stream
+        messages[messages.length - 1]?.content.length === 0; // Và chưa có nội dung nào được stream về
+
     const showWelcomeScreen =
         messages.length === 0 &&
-        !isSending && // Nếu isSending thì không phải welcome
-        !isBotTyping && // Nếu bot đang gõ cũng không phải welcome
-        (!initialQueryFromHome || initialQueryProcessed); // Nếu có initialQuery mà chưa processed thì cũng không phải welcome
+        !isSending &&
+        (!initialQueryFromHome || initialQueryProcessed);
 
     if (!chatId) {
-        return (
-            <div className="flex flex-col h-full items-center justify-center bg-gray-100 rounded-xl">
-                <p className="text-gray-600">
-                    Đang chờ thông tin phiên chat...
-                </p>
-            </div>
-        );
+        /* ... */
     }
 
     return (
-        // ... JSX không thay đổi nhiều, đảm bảo key của message là duy nhất
-        <div className="flex flex-col h-full bg-gradient-to-br from-blue-100 to-purple-100 rounded-xl overflow-hidden">
-            {/* Phần Header */}
+        <div
+            className={`flex flex-col h-full ${
+                effectiveTheme === "light"
+                    ? "bg-gradient-to-br from-blue-100 to-purple-100"
+                    : "bg-gradient-to-br from-gray-900 to-gray-700"
+            } rounded-xl overflow-hidden`}
+        >
+            {/* Header */}
+            {/* ... (Header JSX như cũ) ... */}
             <div
-                className={`text-center transition-all duration-700 max-w-4xl mx-auto px-2 py-2  md:py-1 ${
+                className={`text-center transition-all duration-700 max-w-4xl mx-auto px-2 py-2 md:px-4 md:py-1 ${
                     !showWelcomeScreen
-                        ? "justify-start" // Removed flex and flex-col when not showing welcome
+                        ? "justify-start"
                         : "justify-center flex-col flex flex-1"
                 }`}
             >
                 {showWelcomeScreen ? (
-                    <div className="flex flex-col flex-1 items-center justify-center space-y-3 animate-fade-in">
-                        {" "}
-                        {/* Added flex structure for welcome */}
+                    <div className="flex flex-col flex-1 items-center justify-center space-y-4 animate-fade-in">
                         <div className="relative">
                             <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
                                 Bắt đầu cuộc trò chuyện!
@@ -262,7 +442,13 @@ export default function ChatBox({
                                 <Sparkles size={24} />
                             </div>
                         </div>
-                        <p className="text-lg md:text-xl text-gray-700 font-medium">
+                        <p
+                            className={`text-lg md:text-xl font-medium ${
+                                effectiveTheme === "light"
+                                    ? "text-gray-700"
+                                    : "text-gray-300"
+                            }`}
+                        >
                             Đặt câu hỏi cho JuriBot.
                         </p>
                         <div className="flex justify-center mt-6 md:mt-8">
@@ -272,32 +458,47 @@ export default function ChatBox({
                         </div>
                     </div>
                 ) : (
-                    <div className="flex items-center justify-center gap-2 text-lg md:text-xl font-bold text-gray-800 pt-2 pb-1 md:pt-4 md:pb-2">
+                    <div className="flex items-center justify-center gap-2 text-lg md:text-xl font-bold pt-2 pb-1 md:pt-4 md:pb-2">
                         <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
                             <Sparkles size={16} className="text-white" />
                         </div>
-                        JuriBot Chat
+                        <span
+                            className={`text-xl bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent ${
+                                effectiveTheme === "dark"
+                                    ? "text-shadow-sm"
+                                    : ""
+                            }`}
+                        >
+                            JuriBot Chat
+                        </span>
                     </div>
                 )}
             </div>
 
             {/* Vùng hiển thị tin nhắn */}
-            {!showWelcomeScreen && ( // Chỉ hiển thị khi không phải welcome screen
+            {!showWelcomeScreen && (
                 <div
                     ref={messagesContainerRef}
-                    className="flex-1 overflow-y-auto bg-white/80 backdrop-blur-sm p-3 md:p-6 rounded-2xl border border-gray-200 shadow-lg mb-3 md:mb-6 max-w-5xl w-full mx-auto "
+                    className={`flex-1 overflow-y-auto ${
+                        effectiveTheme === "light"
+                            ? "bg-white/80 border-gray-200"
+                            : "bg-gray-800/70 border-gray-700" // Điều chỉnh màu nền cho dark theme
+                    } backdrop-blur-sm p-3 md:p-6 rounded-2xl border shadow-lg mb-3 md:mb-6 max-w-5xl w-full mx-auto`}
                 >
-                    {messages.length === 0 && !isBotTyping ? ( // Thêm !isBotTyping để không hiện "Không có tin nhắn" khi bot đang chuẩn bị trả lời
-                        <div className="text-center text-gray-500 h-full flex items-center justify-center">
+                    {messages.length === 0 && !isSending ? ( // Kiểm tra isSending thay vì isBotStreaming
+                        <div
+                            className={`text-center h-full flex items-center justify-center ${
+                                effectiveTheme === "light"
+                                    ? "text-gray-500"
+                                    : "text-gray-400"
+                            }`}
+                        >
                             Gửi một tin nhắn để bắt đầu.
                         </div>
                     ) : (
                         messages.map((msg, i) => (
                             <div
-                                key={
-                                    msg.id ||
-                                    `msg-${msg.timestamp}-${i}-${Math.random()}`
-                                } // Đảm bảo key luôn có và duy nhất
+                                key={msg.id}
                                 className={`mb-4 md:mb-6 opacity-0 animate-slide-up ${
                                     msg.role === "user"
                                         ? "text-right"
@@ -306,7 +507,7 @@ export default function ChatBox({
                                 style={{
                                     animationDelay: `${
                                         Math.min(i, 10) * 0.05
-                                    }s`, // Giới hạn delay để không quá lâu
+                                    }s`,
                                     animationFillMode: "forwards",
                                 }}
                             >
@@ -318,7 +519,7 @@ export default function ChatBox({
                                     }`}
                                 >
                                     {msg.role === "assistant" && (
-                                        <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white shadow-lg transform hover:scale-110 transition-transform duration-200 flex-shrink-0">
+                                        <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white shadow-lg shrink-0">
                                             <Bot size={16} />
                                         </div>
                                     )}
@@ -328,43 +529,137 @@ export default function ChatBox({
                                                 ? "bg-gradient-to-r from-blue-400 to-blue-600 text-white"
                                                 : msg.isError
                                                 ? "bg-red-100 text-red-800 border border-red-300"
-                                                : "bg-gray-50 text-gray-900 border border-gray-200"
+                                                : effectiveTheme === "light"
+                                                ? "bg-gray-50 text-gray-900 border border-gray-200"
+                                                : "bg-gray-600 text-gray-100 border border-gray-500" // Màu tin nhắn bot cho dark theme
                                         }`}
                                     >
                                         <div className="markdown-content">
                                             <ReactMarkdown
                                                 remarkPlugins={[remarkGfm]}
                                             >
-                                                {msg.content ||
-                                                    "Nội dung không khả dụng"}
+                                                {msg.content}
                                             </ReactMarkdown>
+                                            {/* Bỏ con trỏ nhấp nháy ở đây, TypingIndicator sẽ xử lý */}
                                         </div>
+                                        {msg.role === "assistant" &&
+                                            msg.sources &&
+                                            msg.sources.length > 0 && (
+                                                // ... (Sources JSX như cũ) ...
+                                                <div
+                                                    className={`mt-2 pt-2 border-t text-xs ${
+                                                        effectiveTheme ===
+                                                        "light"
+                                                            ? "border-gray-200"
+                                                            : "border-gray-500"
+                                                    }`}
+                                                >
+                                                    <p
+                                                        className={`font-semibold mb-1 ${
+                                                            effectiveTheme ===
+                                                            "light"
+                                                                ? "text-gray-600"
+                                                                : "text-gray-300"
+                                                        }`}
+                                                    >
+                                                        Nguồn tham khảo:
+                                                    </p>
+                                                    <ul className="list-disc list-inside pl-2 space-y-1">
+                                                        {msg.sources.map(
+                                                            (source, idx) => (
+                                                                <li
+                                                                    key={`${msg.id}-source-${idx}`}
+                                                                    className={`${
+                                                                        effectiveTheme ===
+                                                                        "light"
+                                                                            ? "text-gray-700 hover:text-blue-600"
+                                                                            : "text-gray-300 hover:text-blue-400"
+                                                                    }`}
+                                                                >
+                                                                    {source.source.startsWith(
+                                                                        "http"
+                                                                    ) ? (
+                                                                        <a
+                                                                            href={
+                                                                                source.source
+                                                                            }
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            title={
+                                                                                source.page_content_preview
+                                                                            }
+                                                                            className="inline-flex items-center"
+                                                                        >
+                                                                            {
+                                                                                new URL(
+                                                                                    source.source
+                                                                                )
+                                                                                    .hostname
+                                                                            }{" "}
+                                                                            <ExternalLink
+                                                                                size={
+                                                                                    12
+                                                                                }
+                                                                                className="ml-1"
+                                                                            />
+                                                                        </a>
+                                                                    ) : (
+                                                                        <span
+                                                                            title={
+                                                                                source.page_content_preview
+                                                                            }
+                                                                        >
+                                                                            {
+                                                                                source.source
+                                                                            }
+                                                                        </span>
+                                                                    )}
+                                                                </li>
+                                                            )
+                                                        )}
+                                                    </ul>
+                                                </div>
+                                            )}
                                     </div>
                                     {msg.role === "user" && (
-                                        <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-gradient-to-r from-green-400 to-blue-500 flex items-center justify-center text-white shadow-lg transform hover:scale-110 transition-transform duration-200 flex-shrink-0">
+                                        <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-gradient-to-r from-green-400 to-blue-500 flex items-center justify-center text-white shadow-lg shrink-0">
                                             <User size={16} />
                                         </div>
                                     )}
                                 </div>
                                 <div
-                                    className={`text-xs mt-1 md:mt-2 text-gray-600 ${
+                                    className={`text-xs mt-1 md:mt-2 ${
+                                        effectiveTheme === "light"
+                                            ? "text-gray-600"
+                                            : "text-gray-400"
+                                    } ${
                                         msg.role === "user"
                                             ? "text-right pr-10 md:pr-11"
                                             : "text-left pl-10 md:pl-11"
                                     }`}
                                 >
                                     {formatTime(msg.timestamp)}
+                                    {msg.role === "assistant" &&
+                                        msg.isStreaming &&
+                                        " (đang trả lời...)"}
                                 </div>
                             </div>
                         ))
                     )}
-                    {isBotTyping && <TypingIndicator />}
+                    {shouldShowTypingIndicator && <TypingIndicator />}
                     <div ref={messagesEndRef} />
                 </div>
             )}
 
             {/* Vùng Input */}
-            <div className="bg-white/90 backdrop-blur-sm border border-gray-200 rounded-2xl shadow-xl p-3 md:p-4 max-w-5xl mx-auto w-full transition-all duration-300 hover:shadow-2xl mb-1">
+            {/* ... (Input JSX như cũ, chỉ cần đảm bảo isSending được dùng để disable) ... */}
+            <div
+                className={`${
+                    effectiveTheme === "light"
+                        ? "bg-white/90 border-gray-200"
+                        : "bg-black/30 border-gray-700" // Điều chỉnh màu input cho dark theme
+                } backdrop-blur-sm border rounded-2xl shadow-xl p-3 md:p-4 max-w-5xl mx-auto w-full transition-all duration-300 hover:shadow-2xl mb-1`}
+            >
                 <textarea
                     ref={textareaRef}
                     value={input}
@@ -376,7 +671,13 @@ export default function ChatBox({
                             : "Nhập câu hỏi về luật pháp..."
                     }
                     rows={1}
-                    className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 md:px-5 md:py-4 mb-3 md:mb-4 focus:outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 resize-none text-sm md:text-base transition-all duration-300 bg-white/90 backdrop-blur-sm scrollbar scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-gray-100 custom-scrollbar text-gray-900"
+                    className={`w-full border-2 rounded-xl px-4 py-3 md:px-5 md:py-4 mb-3 md:mb-4 focus:outline-none resize-none text-sm md:text-base transition-all duration-300 scrollbar scrollbar-thin custom-scrollbar
+                        ${
+                            effectiveTheme === "light"
+                                ? "bg-white/90 border-gray-200 focus:border-blue-400 focus:ring-4 focus:ring-blue-100 text-gray-900 scrollbar-thumb-gray-400 scrollbar-track-gray-100"
+                                : "bg-gray-700/80 border-gray-600 focus:border-blue-500 focus:ring-4 focus:ring-blue-900/50 text-gray-100 scrollbar-thumb-gray-500 scrollbar-track-gray-700"
+                        }
+                    `}
                     style={{
                         minHeight: "48px",
                         maxHeight: "150px",
@@ -386,7 +687,13 @@ export default function ChatBox({
                 />
                 <div className="flex items-center justify-between">
                     <button
-                        className="group w-9 h-9 md:w-10 md:h-10 cursor-pointer rounded-xl bg-gradient-to-r from-gray-100 to-gray-200 hover:from-blue-100 hover:to-purple-100 border border-gray-300 hover:border-blue-300 flex items-center justify-center transition-all duration-300 transform hover:scale-105 hover:shadow-lg"
+                        className={`group w-9 h-9 md:w-10 md:h-10 cursor-pointer rounded-xl border flex items-center justify-center transition-all duration-300 transform hover:scale-105 hover:shadow-lg
+                            ${
+                                effectiveTheme === "light"
+                                    ? "bg-gradient-to-r from-gray-100 to-gray-200 hover:from-blue-100 hover:to-purple-100 border-gray-300 hover:border-blue-300"
+                                    : "bg-gradient-to-r from-gray-700 to-gray-600 hover:from-blue-700 hover:to-purple-700 border-gray-500 hover:border-blue-500"
+                            }
+                        `}
                         disabled={isSending}
                         title="Tải lên tệp (chức năng chưa triển khai)"
                         onClick={() =>
@@ -397,15 +704,19 @@ export default function ChatBox({
                     >
                         <Upload
                             size={18}
-                            className="text-gray-600 group-hover:text-blue-600 transition-colors duration-300"
+                            className={`${
+                                effectiveTheme === "light"
+                                    ? "text-gray-600 group-hover:text-blue-600"
+                                    : "text-gray-300 group-hover:text-blue-400"
+                            } transition-colors duration-300`}
                         />
                     </button>
                     <button
                         onClick={handleSendMessageFromInput}
                         disabled={!input.trim() || isSending}
-                        className="group relative w-9 h-9 md:w-10 md:h-10 cursor-pointer rounded-xl bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:from-gray-300 disabled:to-gray-400 text-white flex items-center justify-center transition-all duration-300 transform hover:scale-105 hover:shadow-xl disabled:hover:scale-100 disabled:cursor-not-allowed"
+                        className="group relative w-9 h-9 md:w-10 md:h-10 cursor-pointer rounded-xl bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-500 text-white flex items-center justify-center transition-all duration-300 transform hover:scale-105 hover:shadow-xl disabled:hover:scale-100 disabled:cursor-not-allowed"
                     >
-                        {isSending && !isBotTyping ? ( // Chỉ hiển thị loader khi đang gửi mà bot chưa typing
+                        {isSending ? (
                             <Loader2 size={18} className="animate-spin" />
                         ) : (
                             <Send
@@ -417,7 +728,6 @@ export default function ChatBox({
                 </div>
             </div>
 
-            {/* Style JSX */}
             <style jsx>{`
                 /* ... (CSS styles như cũ) ... */
                 @keyframes float {
@@ -458,6 +768,7 @@ export default function ChatBox({
                 .animate-slide-up {
                     animation: slide-up 0.6s ease-out forwards;
                 }
+
                 .custom-scrollbar::-webkit-scrollbar {
                     width: 5px;
                 }
@@ -472,7 +783,7 @@ export default function ChatBox({
                     max-width: 100%;
                     overflow-wrap: break-word;
                     word-break: break-word;
-                    white-space: normal; /* Đảm bảo text wrap bình thường */
+                    white-space: normal;
                 }
                 .markdown-content p,
                 .markdown-content pre,
@@ -484,29 +795,42 @@ export default function ChatBox({
                 .markdown-content tr,
                 .markdown-content td,
                 .markdown-content th {
-                    /* Thêm các element của table nếu có */
                     max-width: 100%;
                     overflow-wrap: break-word;
                     word-break: break-word;
-                    white-space: normal; /* Đảm bảo text wrap bình thường */
+                    white-space: normal;
                 }
                 .markdown-content pre {
-                    white-space: pre-wrap; /* Cho phép wrap trong pre */
-                    overflow-x: auto; /* Nhưng vẫn cho scroll ngang nếu cần */
-                    background: #f1f5f9;
+                    white-space: pre-wrap;
+                    overflow-x: auto;
                     padding: 8px;
                     border-radius: 4px;
+                    background: ${effectiveTheme === "light"
+                        ? "#f3f4f6"
+                        : "#374151"}; /* Màu pre cho theme */
+                    color: ${effectiveTheme === "light"
+                        ? "#1f2937"
+                        : "#d1d5db"}; /* Màu text trong pre cho theme */
                 }
                 .markdown-content code:not(pre code) {
-                    /* Chỉ áp dụng cho inline code */
-                    white-space: normal; /* Cho phép wrap cho inline code */
-                    background: #f1f5f9;
+                    white-space: normal;
                     padding: 2px 4px;
                     border-radius: 4px;
+                    background: ${effectiveTheme === "light"
+                        ? "#e5e7eb"
+                        : "#4b5563"}; /* Màu code inline cho theme */
+                    color: ${effectiveTheme === "light"
+                        ? "#374151"
+                        : "#f3f4f6"};
                 }
                 .markdown-content pre code {
-                    /* Code bên trong pre giữ pre-wrap từ pre */
-                    white-space: inherit; /* Kế thừa từ pre */
+                    white-space: inherit;
+                    background: transparent;
+                    color: inherit;
+                    padding: 0;
+                }
+                .text-shadow-sm {
+                    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
                 }
             `}</style>
         </div>

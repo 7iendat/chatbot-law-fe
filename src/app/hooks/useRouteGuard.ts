@@ -1,24 +1,36 @@
+"use client"; // Đảm bảo đây là Client Component nếu dùng trong App Router
+
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useRef, useCallback } from "react";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../contexts/AuthContext"; // Đảm bảo đường dẫn đúng
 
 interface RouteGuardOptions {
-    redirectTo?: string;
-    requiredRole?: string;
-    requireAuth?: boolean;
-    adminOnly?: boolean;
-    restrictedForUsers?: boolean;
+    redirectTo?: string; // Trang chuyển hướng đến nếu không xác thực/ủy quyền
+    requiredRole?: string; // Vai trò cụ thể yêu cầu cho route này
+    requireAuth?: boolean; // Route này có yêu cầu đăng nhập không? (mặc định là true)
+    adminOnly?: boolean; // Route này chỉ dành cho admin?
+    restrictedForUsers?: boolean; // Route này có bị hạn chế đối với user thường không?
 }
 
 export const useRouteGuard = (options: RouteGuardOptions = {}) => {
-    const { isAuthenticated, loading, user, isInitialized, token } = useAuth();
+    const {
+        isAuthenticated,
+        loading: authContextLoading, // Trạng thái loading từ AuthContext
+        user,
+        isInitialized: authContextInitialized, // Trạng thái initialized từ AuthContext
+    } = useAuth();
     const router = useRouter();
-    const [isAuthorized, setIsAuthorized] = useState(false);
-    const [hasCheckedAuth, setHasCheckedAuth] = useState(false);
-    const [isRedirecting, setIsRedirecting] = useState(false);
-    const mountedRef = useRef(true);
-    const hasPerformedInitialCheck = useRef(false); // Dùng để reset state khi hook được dùng ở trang mới
 
+    // State nội tại của hook để quản lý quá trình kiểm tra và ủy quyền cho route hiện tại
+    const [isAuthorizedForRoute, setIsAuthorizedForRoute] = useState(false);
+    const [hasPerformedCheck, setHasPerformedCheck] = useState(false); // Đã thực hiện kiểm tra quyền cho route này chưa
+    const [isRedirecting, setIsRedirecting] = useState(false); // Đang trong quá trình chuyển hướng programmatic
+
+    const mountedRef = useRef(true); // Theo dõi component có còn mounted không
+    // Theo dõi xem instance của hook này đã thực hiện khởi tạo nội bộ hay chưa (cho route/component hiện tại)
+    const instanceLogicInitializedRef = useRef(false);
+
+    // Destructure options với giá trị mặc định
     const {
         redirectTo = "/welcome",
         requiredRole,
@@ -27,287 +39,248 @@ export const useRouteGuard = (options: RouteGuardOptions = {}) => {
         restrictedForUsers = false,
     } = options;
 
+    // Effect để quản lý mounted state của component
     useEffect(() => {
         mountedRef.current = true;
+        // Khi component unmount (hoặc key thay đổi khiến hook chạy lại cho instance mới),
+        // reset instanceLogicInitializedRef để lần sau hook được dùng sẽ thực hiện lại logic khởi tạo nội bộ.
         return () => {
             mountedRef.current = false;
+            instanceLogicInitializedRef.current = false;
+            // console.log("RouteGuard: Unmounted or instance key changed. Resetting instanceLogicInitializedRef.");
         };
-    }, []);
+    }, []); // Chạy một lần khi hook mount
 
-    const performAuthCheck = useCallback(() => {
-        if (!mountedRef.current || !isInitialized || loading) {
-            // Nếu AuthContext chưa sẵn sàng, hoặc component đã unmount, không làm gì cả
-            // Điều này quan trọng vì performAuthCheck có thể được gọi từ setTimeout (nếu còn dùng)
-            // hoặc sau khi isInitialized/loading thay đổi
-            console.log(
-                "Route Guard - performAuthCheck: AuthContext not ready or unmounted. isInitialized:",
-                isInitialized,
-                "loading:",
-                loading
-            );
-            return;
-        }
-
-        // Dòng log này rất quan trọng để theo dõi giá trị đầu vào của performAuthCheck
-        console.log("Route Guard - Performing auth check with values:", {
-            isAuthenticated,
-            token: !!token,
-            user: !!user,
-            requireAuth,
-            isInitialized,
-            loading,
-            userRole: user?.role,
-            adminOnly,
-            restrictedForUsers,
-            hasPerformedInitialCheckCurrent: hasPerformedInitialCheck.current,
-            // Các state nội tại tại thời điểm gọi performAuthCheck
-            _internal_hasCheckedAuth: hasCheckedAuth,
-            _internal_isRedirecting: isRedirecting,
-        });
-
-        // Ngăn chặn kiểm tra lại nếu đã kiểm tra và không đang chuyển hướng
-        // Quan trọng: Dùng giá trị `hasCheckedAuth` và `isRedirecting` hiện tại từ closure
-        // không phải từ state snapshot lúc useCallback được tạo nếu chúng là dependencies.
-        // Nhưng vì chúng không còn là dependencies, nó sẽ dùng giá trị state hiện tại.
+    // Hàm thực hiện kiểm tra xác thực và ủy quyền
+    const performCheck = useCallback(() => {
+        // Điều kiện bypass:
+        // 1. Component đã unmount.
+        // 2. AuthContext chưa initialized hoặc đang loading (chờ AuthContext ổn định).
+        // 3. Đang trong quá trình chuyển hướng (để tránh check lặp lại khi redirect đang diễn ra).
         if (
-            hasPerformedInitialCheck.current &&
-            hasCheckedAuth &&
-            !isRedirecting
+            !mountedRef.current ||
+            !authContextInitialized ||
+            authContextLoading ||
+            isRedirecting
         ) {
-            console.log(
-                "Route Guard - Already checked and authorized, not redirecting. Bypassing new check."
-            );
-            // Nếu đã authorized và hasCheckedAuth, có thể setIsAuthorized(true) ở đây để đảm bảo.
-            // Tuy nhiên, if (isAuthorized) return; cũng là một lựa chọn ở đầu hàm.
-            // Hiện tại, logic này sẽ ngăn performAuthCheck chạy lại nếu không cần.
+            // console.log("RouteGuard - performCheck: Bypassed (AuthContext not ready or redirecting).", { authContextInitialized, authContextLoading, isRedirecting });
             return;
         }
 
-        hasPerformedInitialCheck.current = true; // Đánh dấu đã thực hiện kiểm tra ít nhất một lần
+        // Nếu đã kiểm tra và được ủy quyền cho route này rồi, và không đang redirect, thì không cần làm gì thêm.
+        // Điều này giúp tránh việc kiểm tra lại không cần thiết nếu các dependency của performCheck thay đổi
+        // nhưng kết quả ủy quyền không đổi.
+        if (hasPerformedCheck && isAuthorizedForRoute && !isRedirecting) {
+            // console.log("RouteGuard - performCheck: Already checked and authorized for this route instance. Bypassing actual check logic.");
+            return;
+        }
 
-        // Case 1: Không yêu cầu xác thực
+        // console.log(`RouteGuard - Performing check on ${typeof window !== "undefined" ? window.location.pathname : "server-side"} with values:`, {
+        //     isAuthenticated, // Đây là giá trị mới nhất từ AuthContext
+        //     userPresent: !!user,
+        //     userRole: user?.role,
+        //     optionsPassed: options, // Log options để debug
+        //     _internal_hasPerformedCheck_before: hasPerformedCheck,
+        //     _internal_isAuthorizedForRoute_before: isAuthorizedForRoute,
+        // });
+
+        let authorized = false;
+        let shouldRedirectTo: string | null = null;
+
         if (!requireAuth) {
-            console.log(
-                "Route Guard - No authentication required, granting access"
-            );
-            if (mountedRef.current) {
-                setIsAuthorized(true);
-                setHasCheckedAuth(true);
-                setIsRedirecting(false);
+            authorized = true;
+            // console.log("RouteGuard: No authentication required for this route. Access granted.");
+        } else if (!isAuthenticated) {
+            // Yêu cầu xác thực nhưng người dùng chưa được xác thực (isAuthenticated từ AuthContext là false)
+            authorized = false;
+            shouldRedirectTo = redirectTo;
+            // console.log(`RouteGuard: Authentication required, but user is not authenticated. Preparing to redirect to: ${redirectTo}`);
+        } else {
+            // Người dùng đã được xác thực (isAuthenticated là true), tiến hành kiểm tra quyền (authorization)
+            const currentUserRole = user?.role?.toLowerCase();
+            // console.log(`RouteGuard: User is authenticated. Role: ${currentUserRole}. Checking specific permissions...`);
+
+            if (currentUserRole === "admin") {
+                authorized = true; // Admin luôn có quyền truy cập
+                // console.log("RouteGuard: Admin user detected. Full access granted.");
+            } else if (adminOnly) {
+                // Trang này chỉ dành cho admin, nhưng user hiện tại không phải admin
+                authorized = false;
+                shouldRedirectTo = "/unauthorized"; // Hoặc một trang lỗi quyền cụ thể
+                // console.log("RouteGuard: Admin-only page accessed by non-admin user. Redirecting to /unauthorized.");
+            } else if (restrictedForUsers && currentUserRole === "user") {
+                // Trang này bị hạn chế cho user thường, và user hiện tại là 'user'
+                authorized = false;
+                shouldRedirectTo = "/unauthorized";
+                // console.log("RouteGuard: User (role 'user') trying to access a page restricted for users. Redirecting to /unauthorized.");
+            } else if (
+                requiredRole &&
+                currentUserRole !== requiredRole.toLowerCase()
+            ) {
+                // Yêu cầu vai trò cụ thể nhưng vai trò của user không khớp
+                authorized = false;
+                shouldRedirectTo = "/unauthorized";
+                // console.log(`RouteGuard: Role mismatch. Required: '${requiredRole}', User has: '${currentUserRole}'. Redirecting to /unauthorized.`);
+            } else {
+                // Tất cả các kiểm tra quyền khác đều qua, user được phép
+                authorized = true;
+                // console.log("RouteGuard: User authorization successful for this route.");
             }
-            return;
         }
 
-        // Case 2: Yêu cầu xác thực nhưng người dùng chưa xác thực (hoặc token/user không hợp lệ)
-        if (!isAuthenticated || !token || !user) {
-            console.log(
-                "Route Guard - Authentication required but not valid, redirecting to:",
-                redirectTo
-            );
-            if (mountedRef.current) {
-                setIsAuthorized(false);
-                setHasCheckedAuth(true); // Đã kiểm tra, kết quả là không được phép
-                setIsRedirecting(true);
-                // Dùng setTimeout để đảm bảo việc redirect không gây lỗi state update trong render
+        if (mountedRef.current) {
+            // Cập nhật state nội bộ của hook
+            // Chỉ cập nhật nếu giá trị thực sự thay đổi để tránh re-render không cần thiết
+            if (isAuthorizedForRoute !== authorized) {
+                setIsAuthorizedForRoute(authorized);
+            }
+            // Đánh dấu là đã thực hiện kiểm tra ít nhất một lần cho instance này
+            if (!hasPerformedCheck) {
+                setHasPerformedCheck(true);
+            }
+
+            if (shouldRedirectTo && !isRedirecting) {
+                // Chỉ thực hiện redirect nếu cần và chưa làm
+                setIsRedirecting(true); // Đặt cờ báo đang chuyển hướng
+                console.log(
+                    `RouteGuard: Condition met for redirect. Executing redirect to: ${shouldRedirectTo}`
+                );
+                // Sử dụng setTimeout để việc redirect không gây lỗi "cannot update state on unmounted component"
+                // và để đảm bảo nó xảy ra sau khi render hiện tại hoàn tất.
                 setTimeout(() => {
                     if (mountedRef.current) {
-                        router.replace(redirectTo);
-                        // Sau khi redirect, có thể không cần setIsRedirecting(false)
-                        // vì component sẽ unmount hoặc useRouteGuard sẽ chạy lại ở trang mới.
+                        // Kiểm tra lại mounted state trước khi redirect
+                        router.replace(shouldRedirectTo);
+                        // Sau khi router.replace, component này có thể sẽ unmount.
+                        // Việc reset isRedirecting về false sẽ được xử lý khi hook chạy lại ở trang mới
+                        // hoặc khi instanceLogicInitializedRef được reset.
                     }
                 }, 0);
-            }
-            return;
-        }
-
-        // Case 3: Người dùng đã xác thực - kiểm tra quyền
-        const userRole = user.role?.toLowerCase();
-
-        // Admin có toàn quyền
-        if (userRole === "admin") {
-            console.log(
-                "Route Guard - Admin user detected, granting full access"
-            );
-            if (mountedRef.current) {
-                setIsAuthorized(true);
-                setHasCheckedAuth(true);
+            } else if (!shouldRedirectTo && isRedirecting) {
+                // Nếu trước đó đang redirect nhưng điều kiện hiện tại không cần redirect nữa
+                // (ví dụ: user logout rồi login lại rất nhanh và state thay đổi)
                 setIsRedirecting(false);
+            } else if (!shouldRedirectTo && !isRedirecting) {
+                // Trường hợp không cần redirect và không đang redirect, không làm gì với cờ isRedirecting
             }
-            return;
-        }
-
-        // Kiểm tra trang chỉ dành cho admin
-        if (adminOnly) {
-            // userRole ở đây không phải admin (đã check ở trên)
-            console.log(
-                "Route Guard - Admin-only page accessed by non-admin user, redirecting"
-            );
-            if (mountedRef.current) {
-                setIsAuthorized(false);
-                setHasCheckedAuth(true);
-                setIsRedirecting(true);
-                setTimeout(() => {
-                    if (mountedRef.current) router.replace("/unauthorized");
-                }, 0);
-            }
-            return;
-        }
-
-        // Kiểm tra trang bị hạn chế cho user thường (nếu userRole là 'user')
-        if (restrictedForUsers && userRole === "user") {
-            console.log(
-                "Route Guard - User trying to access restricted page, redirecting"
-            );
-            if (mountedRef.current) {
-                setIsAuthorized(false);
-                setHasCheckedAuth(true);
-                setIsRedirecting(true);
-                setTimeout(() => {
-                    if (mountedRef.current) router.replace("/unauthorized");
-                }, 0);
-            }
-            return;
-        }
-
-        // Kiểm tra vai trò cụ thể được yêu cầu
-        if (requiredRole && userRole !== requiredRole.toLowerCase()) {
-            console.log(
-                `Route Guard - Required role: ${requiredRole}, User role: ${userRole}, redirecting`
-            );
-            if (mountedRef.current) {
-                setIsAuthorized(false);
-                setHasCheckedAuth(true);
-                setIsRedirecting(true);
-                setTimeout(() => {
-                    if (mountedRef.current) router.replace("/unauthorized");
-                }, 0);
-            }
-            return;
-        }
-
-        // Nếu đến được đây, người dùng được phép truy cập
-        console.log("Route Guard - User authorized for this route");
-        if (mountedRef.current) {
-            setIsAuthorized(true);
-            setHasCheckedAuth(true);
-            setIsRedirecting(false);
         }
     }, [
         // Dependencies của useCallback:
-        // Chỉ bao gồm những gì thực sự khiến logic của performAuthCheck thay đổi.
-        // Các state nội tại (hasCheckedAuth, isRedirecting) KHÔNG nên ở đây.
+        authContextInitialized,
+        authContextLoading,
         isAuthenticated,
-        token,
         user, // Từ AuthContext
+        options, // options object để tái tạo callback nếu options thay đổi (ít xảy ra với RouteGuard)
+        router, // từ next/navigation
+        // Các giá trị options đã destructure để ổn định:
         requireAuth,
+        redirectTo,
+        requiredRole,
         adminOnly,
         restrictedForUsers,
-        requiredRole,
-        redirectTo, // Từ options
-        router, // Từ next/navigation
-        isInitialized,
-        loading, // Từ AuthContext (quan trọng để re-eval khi context sẵn sàng)
-        // BỎ: hasCheckedAuth, isRedirecting
+        // State nội bộ cần thiết để tránh vòng lặp hoặc hành vi không đúng:
+        isRedirecting, // Nếu đang redirect, không nên gọi lại performCheck với logic cũ
+        hasPerformedCheck,
+        isAuthorizedForRoute, // Để tránh re-check nếu đã authorized và không có gì thay đổi
     ]);
 
+    // Effect chính để kích hoạt kiểm tra khi AuthContext sẵn sàng hoặc trạng thái xác thực thay đổi
     useEffect(() => {
-        console.log(
-            "Route Guard - Main effect triggered. isInitialized:",
-            isInitialized,
-            "loading:",
-            loading
-        );
+        // console.log("RouteGuard - Main Effect Triggered. AuthContext State:", { authContextInitialized, authContextLoading });
 
-        if (!isInitialized || loading) {
-            console.log(
-                "Route Guard - Main effect: Auth context not initialized or still loading. Waiting..."
-            );
-            // Quan trọng: Nếu chưa init hoặc đang loading, ta KHÔNG reset hasCheckedAuth
-            // vì có thể nó đã được set từ một lần chạy trước đó của effect này khi isInitialized=true
-            // và ta chỉ đang chờ AuthContext ổn định lại (ví dụ: sau refresh trang).
-            // Ta chỉ nên reset hasCheckedAuth khi instance của hook này là mới hoàn toàn cho một trang.
-            return;
+        // Chờ AuthContext hoàn toàn sẵn sàng (đã initialized và không còn loading)
+        if (!authContextInitialized || authContextLoading) {
+            // console.log("RouteGuard: AuthContext not fully initialized or is loading. Waiting...");
+            return; // Không làm gì nếu AuthContext chưa sẵn sàng
         }
 
-        // Chỉ reset state khi hook này được mount lần đầu cho một component/route instance mới.
-        // hasPerformedInitialCheck.current sẽ là false khi AdminDashboard mount.
-        if (!hasPerformedInitialCheck.current) {
-            console.log(
-                "Route Guard - Main effect: First run for this hook instance (e.g. new page). Resetting internal checks."
-            );
+        // Nếu đây là lần đầu tiên hook này chạy logic cho instance component hiện tại
+        // (ví dụ, khi điều hướng đến một trang mới), reset các state kiểm tra nội bộ.
+        if (!instanceLogicInitializedRef.current) {
+            // console.log("RouteGuard: First logical run for this hook instance. Resetting internal check states.");
             if (mountedRef.current) {
-                setHasCheckedAuth(false);
-                setIsAuthorized(false);
-                setIsRedirecting(false);
+                setHasPerformedCheck(false); // Quan trọng: reset để kiểm tra lại từ đầu cho route mới
+                setIsAuthorizedForRoute(false); // Reset trạng thái ủy quyền
+                setIsRedirecting(false); // Reset cờ chuyển hướng
+                instanceLogicInitializedRef.current = true; // Đánh dấu đã thực hiện khởi tạo logic cho instance này
             }
         }
 
-        // Gọi performAuthCheck trực tiếp thay vì dùng setTimeout
-        // Effect này đã đảm bảo isInitialized=true và loading=false
-        console.log(
-            "Route Guard - Main effect: Auth context ready. Calling performAuthCheck."
-        );
-        performAuthCheck();
+        // Sau khi AuthContext sẵn sàng và các state nội bộ có thể đã được reset (nếu cần),
+        // thì thực hiện kiểm tra.
+        // `performCheck` sẽ tự quyết định có chạy logic kiểm tra đầy đủ hay không dựa trên các điều kiện bên trong nó.
+        // console.log("RouteGuard: AuthContext ready. Calling performCheck.");
+        performCheck();
     }, [
-        isInitialized,
-        loading, // Khi AuthContext sẵn sàng/thay đổi
+        authContextInitialized,
+        authContextLoading, // Kích hoạt khi AuthContext sẵn sàng
         isAuthenticated,
-        user,
-        token, // Khi trạng thái xác thực thay đổi
-        performAuthCheck, // Hàm callback (dependencies của nó đã được tối ưu)
-        // Bỏ options trực tiếp (requireAuth, adminOnly, etc.) vì chúng đã là deps của performAuthCheck
+        user, // Kích hoạt khi trạng thái xác thực/user thay đổi (quan trọng sau login/logout)
+        performCheck, // Hàm callback đã được memoized
+        // Options không cần ở đây nữa vì chúng là dependencies của performCheck
     ]);
 
-    const finalIsLoading =
-        !isInitialized || loading || (requireAuth && !hasCheckedAuth);
+    // Tính toán trạng thái loading cuối cùng của RouteGuard
+    const routeGuardLoading =
+        !authContextInitialized || // AuthContext chưa hoàn thành khởi tạo
+        authContextLoading || // AuthContext đang thực hiện thao tác (ví dụ: fetch user ban đầu)
+        (requireAuth && !hasPerformedCheck && !isRedirecting) || // Nếu yêu cầu auth, chưa check xong, và không đang redirect
+        isRedirecting; // Hoặc đang trong quá trình chuyển hướng programmatic
 
-    const finalIsAuthorized =
-        isInitialized &&
-        !loading &&
-        hasCheckedAuth &&
-        isAuthorized &&
-        !isRedirecting;
+    // Tính toán trạng thái ủy quyền cuối cùng của RouteGuard
+    const finalRouteAuthorized =
+        authContextInitialized && // AuthContext phải initialized
+        !authContextLoading && // AuthContext không được loading
+        hasPerformedCheck && // Guard phải đã thực hiện kiểm tra
+        isAuthorizedForRoute && // Kết quả kiểm tra là được phép
+        !isRedirecting; // Và không đang trong quá trình chuyển hướng
 
-    console.log("Route Guard - Return State:", {
-        isLoading: finalIsLoading,
-        isAuthorized: finalIsAuthorized,
-        _internal_isInitialized: isInitialized,
-        _internal_loading_auth: loading,
-        _internal_hasCheckedAuth: hasCheckedAuth,
-        _internal_isAuthorized_state: isAuthorized,
-        _internal_isRedirecting: isRedirecting,
-        _internal_hasPerformedInitialCheck: hasPerformedInitialCheck.current,
-    });
+    // console.log("RouteGuard - Final Return State:", {
+    //     routeGuardLoading,
+    //     finalRouteAuthorized,
+    //     _internal_isInitialized: authContextInitialized,
+    //     _internal_authLoading: authContextLoading,
+    //     _internal_hasPerformedCheck: hasPerformedCheck,
+    //     _internal_isAuthorizedForRoute: isAuthorizedForRoute,
+    //     _internal_isRedirecting: isRedirecting,
+    //     _internal_instanceLogicInitialized: instanceLogicInitializedRef.current,
+    // });
 
     return {
-        isAuthorized: finalIsAuthorized,
-        isLoading: finalIsLoading,
-        user,
-        isAuthenticated,
+        isAuthorized: finalRouteAuthorized,
+        isLoading: routeGuardLoading,
+        user, // Thông tin user từ AuthContext
+        isAuthenticated, // Trạng thái xác thực từ AuthContext
+        // Các helper role để tiện sử dụng trong component
         userRole: user?.role?.toLowerCase(),
         isAdmin: user?.role?.toLowerCase() === "admin",
         isUser: user?.role?.toLowerCase() === "user",
-        token,
     };
 };
 
-// Helper hooks không thay đổi
+// Các helper hooks (useAdminGuard, useUserGuard, useAuthGuard)
+// Chúng không thay đổi vì chỉ truyền options vào useRouteGuard.
+
 export const useAdminGuard = (redirectTo?: string) => {
     return useRouteGuard({
         requireAuth: true,
         adminOnly: true,
-        redirectTo: redirectTo || "/unauthorized",
+        // Nếu admin chưa login, nên chuyển đến trang login, không phải /unauthorized
+        redirectTo: redirectTo || "/login", // Hoặc "/welcome" nếu trang login của bạn là welcome
     });
 };
 
 export const useUserGuard = (redirectTo?: string) => {
     return useRouteGuard({
         requireAuth: true,
-        requiredRole: "user",
+        // requiredRole: "user", // Thường thì không cần chỉ định nếu chỉ muốn user thường
+        // Nếu một route chỉ dành cho role "user" và không cho admin, bạn có thể thêm logic này.
+        // Nhưng thường thì admin có quyền của user.
         redirectTo: redirectTo || "/welcome",
     });
 };
 
+// Guard chung yêu cầu đăng nhập, không quan tâm role cụ thể
 export const useAuthGuard = (redirectTo?: string) => {
     return useRouteGuard({
         requireAuth: true,

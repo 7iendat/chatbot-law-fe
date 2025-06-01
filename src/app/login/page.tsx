@@ -172,14 +172,13 @@ export default function LoginPage() {
         setVerificationError("");
 
         try {
-            const { accessToken, user } = await verifyCodeApi(codeToVerify);
-            localStorage.setItem("accessToken", accessToken);
+            const { user } = await verifyCodeApi(codeToVerify);
             localStorage.setItem("userData", JSON.stringify(user));
             toast.success("Đăng nhập thành công!", { duration: 1500 });
             console.log("user", user);
 
             const userData = user; // Assuming userData is a global variable or context
-            await login(accessToken, userData);
+            await login(userData);
             setTimeout(() => {
                 if (user.role === "admin") {
                     router.push("/admin/dashboard");

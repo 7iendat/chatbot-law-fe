@@ -3,7 +3,7 @@ import { api } from "../libs/axios";
 // Types for API responses
 export interface LoginResponse {
     needsVerification?: boolean;
-    accessToken?: string;
+    // accessToken?: string;
     user?: {
         email: string;
         username?: string;
@@ -13,7 +13,7 @@ export interface LoginResponse {
 }
 
 export interface VerifyCodeResponse {
-    accessToken: string;
+    // accessToken: string;
     user: {
         email: string;
         username?: string;
@@ -45,6 +45,22 @@ export interface ErrorResponse {
         };
     };
     message: string;
+}
+
+export interface UserApiResponse {
+    email: string;
+    username?: string;
+    role?: string;
+    avatar_url?: string;
+    is_active?: boolean; // Thêm is_active nếu API trả về
+    // Thêm các trường khác nếu API /user/me trả về
+}
+
+// Interface này định nghĩa cấu trúc của toàn bộ response từ getCurrentUser
+// Nó chứa một key 'user' có thể là UserApiResponse hoặc null
+export interface UserDataResponse {
+    user: UserApiResponse | null;
+    // Có thể thêm các trường khác nếu API /user/me trả về nhiều hơn (ví dụ: message)
 }
 
 // Authentication API calls
@@ -198,18 +214,36 @@ export const authApi = {
     },
 
     // Get current user profile
-    getProfile: async (): Promise<{
-        user: {
-            email: string;
-            username?: string;
-            role?: string;
-            avatar?: string;
-            is_active?: boolean;
-            createdAt: string;
-            updatedAt: string;
-        };
-    }> => {
-        return await api.get("/user/me");
+    getCurrentUser: async (): Promise<UserDataResponse> => {
+        try {
+            // Endpoint này cần được bảo vệ và đọc access_token_cookie
+            // Giả sử api.get trả về trực tiếp payload JSON của response (tức là UserApiResponse)
+            // Nếu API /user/me của bạn trả về { "user": { ... } } thì dòng dưới cần là:
+            // const response = await api.get<{ user: UserApiResponse }>("/user/me");
+            // return { user: response.user };
+
+            // Còn nếu API /user/me của bạn trả về trực tiếp object user: { email: ..., username: ...}
+            // thì code như sau:
+            const userApiResponse = await api.get<UserApiResponse>("/user/me"); // Gọi tới endpoint /user/me
+            console.log("check", userApiResponse);
+            // Nếu request thành công và userApiResponse có dữ liệu (ví dụ không phải null hay undefined từ api.get)
+            if (userApiResponse) {
+                // console.log("authApi.getCurrentUser: User data fetched successfully:", userApiResponse);
+                return { user: userApiResponse }; // Trả về cấu trúc { user: UserApiResponse }
+            } else {
+                // Trường hợp hiếm gặp: API trả về 200 OK nhưng data là null/undefined
+                // console.warn("authApi.getCurrentUser: Fetched user data is null/undefined despite 200 OK.");
+                return { user: null };
+            }
+        } catch (error: any) {
+            // Nếu API trả về lỗi (ví dụ 401, 403, 500), Axios interceptor sẽ ném lỗi
+            console.warn(
+                "authApi.getCurrentUser: Error fetching user. Likely not authenticated or API error.",
+                error.message || error // Log message của lỗi
+            );
+            // Không ném lỗi ở đây để AuthProvider có thể xử lý việc user là null
+            return { user: null }; // Quan trọng: Trả về cấu trúc { user: null } khi có lỗi
+        }
     },
 
     // // Update user profile
@@ -262,6 +296,6 @@ export const {
     logout,
     forgotPassword,
     resetPassword,
-    getProfile,
+    getCurrentUser,
     // updateProfile,
 } = authApi;

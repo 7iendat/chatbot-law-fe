@@ -1,73 +1,87 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
     Upload,
     FileText,
     Database,
     AlertCircle,
     CheckCircle,
-    X,
-    Eye,
-    Download,
+    // X, // Not used directly in current version
+    // Eye, // Not used
+    // Download, // Not used
     Trash2,
     RefreshCw,
     FileCheck,
+    Loader2, // Using this for processing_backend
 } from "lucide-react";
+import { documentApi } from "../services/documentApi";
+// Adjust path as needed
+
+// Define the structure of a file being uploaded/managed
+// This helps with TypeScript if you convert, or just for clarity
+interface UploadedFile {
+    id: number;
+    file: File;
+    name: string;
+    size: number;
+    type: string;
+    category: string;
+    status:
+        | "pending"
+        | "uploading"
+        | "processing_backend"
+        | "skipped"
+        | "error"
+        | "success_processed"; // success_processed for future when backend confirms
+    progress: number;
+    uploadedAt: string;
+    error: string | null;
+    backend_filename?: string | null;
+    backend_output_path?: string | null;
+    // processedRecords: number; // This was removed as backend /upload doesn't provide it immediately
+}
 
 const ChatbotDataUpload = () => {
-    const [uploadedFiles, setUploadedFiles] = useState([]);
+    const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
     const [dragActive, setDragActive] = useState(false);
-    const [uploadProgress, setUploadProgress] = useState({});
+    // uploadProgress is now part of each fileData object
+    // const [uploadProgress, setUploadProgress] = useState({}); // Removed
     const [uploadStats, setUploadStats] = useState({
         totalFiles: 0,
-        successfulUploads: 0,
+        successfulUploads: 0, // Files sent to backend for processing
         failedUploads: 0,
-        totalSize: 0,
+        // totalSize: 0, // Could be calculated if needed
     });
     const [selectedCategory, setSelectedCategory] = useState("law_documents");
-    const [processingStatus, setProcessingStatus] = useState({});
-    const fileInputRef = useRef(null);
+    // processingStatus is now part of the fileData.status
+    // const [processingStatus, setProcessingStatus] = useState({}); // Removed
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
+    // Backend supported extensions: .pdf, .txt, .md, .docx
+    // Adjusted categories to better reflect backend support
     const categories = [
         {
             value: "law_documents",
-            label: "Văn bản pháp luật",
+            label: "Văn bản pháp luật & Khác", // Generic category for all supported types by /upload
             icon: FileText,
             color: "blue",
+            accept: ".pdf,.txt,.md,.docx",
+            // These MIME types are for frontend validation, backend uses extension.
+            allowedMimeTypes: [
+                "application/pdf",
+                "text/plain",
+                "text/markdown", // Common for .md
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+                "application/msword", // .doc (though backend may not fully support .doc content extraction as well as .docx)
+            ],
         },
-        {
-            value: "case_studies",
-            label: "Án lệ tham khảo",
-            icon: Database,
-            color: "green",
-        },
-        {
-            value: "legal_qa",
-            label: "Câu hỏi - Đáp án mẫu",
-            icon: FileCheck,
-            color: "purple",
-        },
-        {
-            value: "regulations",
-            label: "Quy định, thông tư",
-            icon: AlertCircle,
-            color: "orange",
-        },
+        // If you have other *backend endpoints* for different categories, add them.
+        // For now, assuming one /upload endpoint for these document types.
     ];
 
-    const allowedFileTypes = {
-        "application/pdf": "PDF",
-        "application/msword": "DOC",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-            "DOCX",
-        "text/plain": "TXT",
-        "application/json": "JSON",
-        "text/csv": "CSV",
-        "application/vnd.ms-excel": "XLS",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
-            "XLSX",
-    };
+    const currentCategoryConfig =
+        categories.find((c) => c.value === selectedCategory) || categories[0];
 
-    const handleDrag = (e) => {
+    const handleDrag = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
         e.stopPropagation();
         if (e.type === "dragenter" || e.type === "dragover") {
@@ -77,7 +91,7 @@ const ChatbotDataUpload = () => {
         }
     };
 
-    const handleDrop = (e) => {
+    const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
         e.stopPropagation();
         setDragActive(false);
@@ -87,18 +101,38 @@ const ChatbotDataUpload = () => {
         }
     };
 
-    const handleFileInput = (e) => {
+    const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             handleFiles(Array.from(e.target.files));
+            if (fileInputRef.current) {
+                // Clear the input value to allow re-uploading the same file
+                fileInputRef.current.value = "";
+            }
         }
     };
 
-    const handleFiles = (files) => {
+    const handleFiles = (files: File[]) => {
         const validFiles = files.filter((file) => {
-            if (!Object.keys(allowedFileTypes).includes(file.type)) {
-                alert(`Không hỗ trợ định dạng file: ${file.name}`);
+            const fileExtension =
+                "." + file.name.split(".").pop()?.toLowerCase();
+            const allowedExtensions = currentCategoryConfig.accept.split(",");
+
+            // Primary check based on extension as backend uses it
+            if (!allowedExtensions.includes(fileExtension)) {
+                alert(
+                    `Định dạng file không được hỗ trợ: ${
+                        file.name
+                    } (${fileExtension}).\nChỉ chấp nhận: ${currentCategoryConfig.accept
+                        .toUpperCase()
+                        .replaceAll(",", ", ")}`
+                );
                 return false;
             }
+            // Secondary check for MIME type if extension matches (less critical if backend relies on ext)
+            // if (!currentCategoryConfig.allowedMimeTypes.includes(file.type) && !file.type.startsWith("text/")) {
+            //     console.warn(`MIME type ${file.type} for ${file.name} might not match expected types, but extension ${fileExtension} is allowed.`);
+            // }
+
             if (file.size > 50 * 1024 * 1024) {
                 // 50MB limit
                 alert(`File quá lớn: ${file.name}. Giới hạn 50MB.`);
@@ -107,203 +141,141 @@ const ChatbotDataUpload = () => {
             return true;
         });
 
-        const newFiles = validFiles.map((file) => ({
+        const newFiles: UploadedFile[] = validFiles.map((file) => ({
             id: Date.now() + Math.random(),
             file,
             name: file.name,
             size: file.size,
             type: file.type,
             category: selectedCategory,
-            status: "pending", // pending, uploading, success, error, processing
+            status: "pending",
             progress: 0,
             uploadedAt: new Date().toISOString(),
             error: null,
-            processedRecords: 0,
+            // processedRecords: 0, // Removed
         }));
 
         setUploadedFiles((prev) => [...prev, ...newFiles]);
-
-        // Start uploading files
-        newFiles.forEach((fileData) => {
-            uploadFile(fileData);
-        });
+        newFiles.forEach((fileData) => uploadSingleFile(fileData)); // Changed to uploadSingleFile
     };
 
-    const uploadFile = async (fileData) => {
+    // Renamed from uploadFile to avoid conflict if old one is still around
+    const uploadSingleFile = async (fileData: UploadedFile) => {
+        setUploadedFiles((prev) =>
+            prev.map((f) =>
+                f.id === fileData.id
+                    ? { ...f, status: "uploading", progress: 0, error: null }
+                    : f
+            )
+        );
+
         try {
-            // Update status to uploading
-            setUploadedFiles((prev) =>
-                prev.map((f) =>
-                    f.id === fileData.id ? { ...f, status: "uploading" } : f
-                )
-            );
-
-            const formData = new FormData();
-            formData.append("file", fileData.file);
-            formData.append("category", fileData.category);
-            formData.append("fileName", fileData.name);
-
-            // Simulate upload progress
-            const xhr = new XMLHttpRequest();
-
-            xhr.upload.addEventListener("progress", (e) => {
-                if (e.lengthComputable) {
-                    const progress = Math.round((e.loaded / e.total) * 100);
-                    setUploadProgress((prev) => ({
-                        ...prev,
-                        [fileData.id]: progress,
-                    }));
-
-                    setUploadedFiles((prev) =>
-                        prev.map((f) =>
-                            f.id === fileData.id ? { ...f, progress } : f
-                        )
-                    );
-                }
-            });
-
-            xhr.onload = function () {
-                if (xhr.status === 200) {
-                    const response = JSON.parse(xhr.responseText);
-
+            const response = await documentApi.uploadDocument(
+                fileData.file,
+                (progressUpdate: any) => {
                     setUploadedFiles((prev) =>
                         prev.map((f) =>
                             f.id === fileData.id
-                                ? {
-                                      ...f,
-                                      status: "success",
-                                      progress: 100,
-                                      processedRecords:
-                                          response.recordsProcessed || 0,
-                                  }
+                                ? { ...f, progress: progressUpdate.percentage }
                                 : f
                         )
                     );
-
-                    // Start processing the file
-                    processFile(fileData.id);
-
-                    setUploadStats((prev) => ({
-                        ...prev,
-                        successfulUploads: prev.successfulUploads + 1,
-                    }));
-                } else {
-                    throw new Error("Upload failed");
                 }
-            };
+            );
 
-            xhr.onerror = function () {
+            if (response.status === "processing") {
                 setUploadedFiles((prev) =>
                     prev.map((f) =>
                         f.id === fileData.id
                             ? {
                                   ...f,
-                                  status: "error",
-                                  error: "Lỗi kết nối mạng",
+                                  status: "processing_backend",
+                                  progress: 100,
+                                  backend_filename: response.filename,
+                                  backend_output_path: response.output_path,
                               }
                             : f
                     )
                 );
-
-                setUploadStats((prev) => ({
-                    ...prev,
-                    failedUploads: prev.failedUploads + 1,
+                setUploadStats((prevStats) => ({
+                    // Use functional update for stats
+                    ...prevStats,
+                    successfulUploads: prevStats.successfulUploads + 1,
                 }));
-            };
-
-            // Replace with your actual API endpoint
-            xhr.open("POST", "/api/chatbot/upload-data");
-            xhr.send(formData);
-        } catch (error) {
+            } else if (response.status === "skipped") {
+                setUploadedFiles((prev) =>
+                    prev.map((f) =>
+                        f.id === fileData.id
+                            ? {
+                                  ...f,
+                                  status: "skipped",
+                                  progress: 100,
+                                  error: response.message,
+                                  backend_filename: response.filename,
+                              }
+                            : f
+                    )
+                );
+                // Skipped files are not errors, but also not "newly processed"
+            } else {
+                // Should not happen if types are aligned
+                throw new Error(
+                    response.message ||
+                        `Trạng thái không mong đợi từ server: ${response.status}`
+                );
+            }
+        } catch (error: any) {
             setUploadedFiles((prev) =>
                 prev.map((f) =>
                     f.id === fileData.id
-                        ? { ...f, status: "error", error: error.message }
+                        ? {
+                              ...f,
+                              status: "error",
+                              error:
+                                  error.message ||
+                                  "Lỗi không xác định khi tải lên.",
+                          }
                         : f
                 )
             );
-
-            setUploadStats((prev) => ({
-                ...prev,
-                failedUploads: prev.failedUploads + 1,
+            setUploadStats((prevStats) => ({
+                // Use functional update for stats
+                ...prevStats,
+                failedUploads: prevStats.failedUploads + 1,
             }));
         }
     };
 
-    const processFile = async (fileId) => {
-        try {
-            setProcessingStatus((prev) => ({
-                ...prev,
-                [fileId]: "processing",
-            }));
+    // processFile is no longer needed as the backend /upload schedules processing
 
-            // Simulate processing API call
-            // Replace with your actual processing endpoint
-            const response = await fetch(`/api/chatbot/process/${fileId}`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-            });
-
-            if (response.ok) {
-                const result = await response.json();
-                setProcessingStatus((prev) => ({
-                    ...prev,
-                    [fileId]: "completed",
-                }));
-
-                setUploadedFiles((prev) =>
-                    prev.map((f) =>
-                        f.id === fileId
-                            ? {
-                                  ...f,
-                                  processedRecords: result.processedRecords,
-                                  processingComplete: true,
-                              }
-                            : f
-                    )
-                );
-            } else {
-                throw new Error("Processing failed");
-            }
-        } catch (error) {
-            setProcessingStatus((prev) => ({ ...prev, [fileId]: "failed" }));
-        }
-    };
-
-    const retryUpload = (fileData) => {
+    const retryUpload = (fileData: UploadedFile) => {
+        const fileToRetry = {
+            ...fileData,
+            status: "pending" as "pending", // Type assertion
+            error: null,
+            progress: 0,
+        };
         setUploadedFiles((prev) =>
-            prev.map((f) =>
-                f.id === fileData.id
-                    ? { ...f, status: "pending", error: null, progress: 0 }
-                    : f
-            )
+            prev.map((f) => (f.id === fileData.id ? fileToRetry : f))
         );
-        uploadFile(fileData);
+        uploadSingleFile(fileToRetry);
     };
 
-    const removeFile = (fileId) => {
+    const removeFile = (fileId: number) => {
         setUploadedFiles((prev) => prev.filter((f) => f.id !== fileId));
-        setUploadProgress((prev) => {
-            const newProgress = { ...prev };
-            delete newProgress[fileId];
-            return newProgress;
-        });
+        // Note: This doesn't cancel an ongoing upload or delete from backend
     };
 
     const clearAll = () => {
         setUploadedFiles([]);
-        setUploadProgress({});
         setUploadStats({
             totalFiles: 0,
             successfulUploads: 0,
             failedUploads: 0,
-            totalSize: 0,
         });
     };
 
-    const formatFileSize = (bytes) => {
+    const formatFileSize = (bytes: number) => {
         if (bytes === 0) return "0 Bytes";
         const k = 1024;
         const sizes = ["Bytes", "KB", "MB", "GB"];
@@ -311,27 +283,65 @@ const ChatbotDataUpload = () => {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
     };
 
-    const getStatusIcon = (status) => {
-        switch (status) {
-            case "success":
-                return <CheckCircle className="h-5 w-5 text-green-500" />;
+    const getStatusIconAndText = (fileData: UploadedFile) => {
+        switch (fileData.status) {
+            case "processing_backend":
+                return {
+                    icon: (
+                        <Loader2 className="h-5 w-5 text-yellow-500 animate-spin" />
+                    ),
+                    text: "Đang xử lý (server)",
+                    color: "text-yellow-600",
+                };
+            case "success_processed": // For future use when backend confirms processing is done
+                return {
+                    icon: <CheckCircle className="h-5 w-5 text-green-500" />,
+                    text: "Hoàn tất xử lý",
+                    color: "text-green-600",
+                };
             case "error":
-                return <AlertCircle className="h-5 w-5 text-red-500" />;
+                return {
+                    icon: <AlertCircle className="h-5 w-5 text-red-500" />,
+                    text: "Lỗi",
+                    color: "text-red-600",
+                };
             case "uploading":
-                return (
-                    <RefreshCw className="h-5 w-5 text-blue-500 animate-spin" />
-                );
+                return {
+                    icon: (
+                        <RefreshCw className="h-5 w-5 text-blue-500 animate-spin" />
+                    ),
+                    text: `Đang tải lên... ${fileData.progress}%`,
+                    color: "text-blue-600",
+                };
+            case "skipped":
+                return {
+                    icon: <FileCheck className="h-5 w-5 text-gray-500" />,
+                    text: "Đã tồn tại, bỏ qua",
+                    color: "text-gray-600",
+                };
+            case "pending":
             default:
-                return <FileText className="h-5 w-5 text-gray-400" />;
+                return {
+                    icon: <FileText className="h-5 w-5 text-gray-400" />,
+                    text: "Chờ tải lên",
+                    color: "text-gray-500",
+                };
         }
     };
 
-    const getCategoryInfo = (categoryValue) => {
+    const getCategoryInfo = (categoryValue: string) => {
         return (
             categories.find((cat) => cat.value === categoryValue) ||
             categories[0]
         );
     };
+
+    useEffect(() => {
+        setUploadStats((prev) => ({
+            ...prev,
+            totalFiles: uploadedFiles.length,
+        }));
+    }, [uploadedFiles.length]);
 
     return (
         <div className="min-h-screen bg-gray-50 p-6">
@@ -343,21 +353,21 @@ const ChatbotDataUpload = () => {
                     </h1>
                     <p className="text-gray-600">
                         Upload dữ liệu để huấn luyện và cập nhật kiến thức cho
-                        chatbot
+                        chatbot.
                     </p>
                 </div>
 
                 {/* Stats Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                     <div className="bg-white rounded-lg shadow p-6">
                         <div className="flex items-center">
                             <Upload className="h-8 w-8 text-blue-600" />
                             <div className="ml-4">
                                 <p className="text-sm font-medium text-gray-600">
-                                    Tổng files
+                                    Tổng files đã chọn
                                 </p>
                                 <p className="text-2xl font-bold text-gray-900">
-                                    {uploadedFiles.length}
+                                    {uploadStats.totalFiles}
                                 </p>
                             </div>
                         </div>
@@ -367,14 +377,10 @@ const ChatbotDataUpload = () => {
                             <CheckCircle className="h-8 w-8 text-green-600" />
                             <div className="ml-4">
                                 <p className="text-sm font-medium text-gray-600">
-                                    Thành công
+                                    Đã gửi xử lý
                                 </p>
                                 <p className="text-2xl font-bold text-gray-900">
-                                    {
-                                        uploadedFiles.filter(
-                                            (f) => f.status === "success"
-                                        ).length
-                                    }
+                                    {uploadStats.successfulUploads}
                                 </p>
                             </div>
                         </div>
@@ -384,31 +390,10 @@ const ChatbotDataUpload = () => {
                             <AlertCircle className="h-8 w-8 text-red-600" />
                             <div className="ml-4">
                                 <p className="text-sm font-medium text-gray-600">
-                                    Lỗi
+                                    Lỗi Upload
                                 </p>
                                 <p className="text-2xl font-bold text-gray-900">
-                                    {
-                                        uploadedFiles.filter(
-                                            (f) => f.status === "error"
-                                        ).length
-                                    }
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="bg-white rounded-lg shadow p-6">
-                        <div className="flex items-center">
-                            <Database className="h-8 w-8 text-purple-600" />
-                            <div className="ml-4">
-                                <p className="text-sm font-medium text-gray-600">
-                                    Đã xử lý
-                                </p>
-                                <p className="text-2xl font-bold text-gray-900">
-                                    {uploadedFiles.reduce(
-                                        (sum, f) =>
-                                            sum + (f.processedRecords || 0),
-                                        0
-                                    )}
+                                    {uploadStats.failedUploads}
                                 </p>
                             </div>
                         </div>
@@ -422,10 +407,10 @@ const ChatbotDataUpload = () => {
                             Upload dữ liệu mới
                         </h2>
 
-                        {/* Category Selection */}
+                        {/* Category Selection (Now simplified as backend handles types similarly) */}
                         <div className="mb-6">
                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Chọn loại dữ liệu
+                                Loại dữ liệu (hỗ trợ các định dạng bên dưới)
                             </label>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                                 {categories.map((category) => {
@@ -486,8 +471,11 @@ const ChatbotDataUpload = () => {
                                 Kéo thả files vào đây hoặc click để chọn
                             </p>
                             <p className="text-sm text-gray-600 mb-4">
-                                Hỗ trợ: PDF, DOC, DOCX, TXT, JSON, CSV, XLS,
-                                XLSX (Tối đa 50MB)
+                                Hỗ trợ:{" "}
+                                {currentCategoryConfig.accept
+                                    .toUpperCase()
+                                    .replaceAll(",", ", ")}{" "}
+                                (Tối đa 50MB)
                             </p>
                             <button
                                 onClick={() => fileInputRef.current?.click()}
@@ -499,7 +487,7 @@ const ChatbotDataUpload = () => {
                                 ref={fileInputRef}
                                 type="file"
                                 multiple
-                                accept=".pdf,.doc,.docx,.txt,.json,.csv,.xls,.xlsx"
+                                accept={currentCategoryConfig.accept}
                                 onChange={handleFileInput}
                                 className="hidden"
                             />
@@ -511,13 +499,13 @@ const ChatbotDataUpload = () => {
                         <div className="p-6">
                             <div className="flex justify-between items-center mb-4">
                                 <h3 className="text-lg font-semibold text-gray-900">
-                                    Files đã upload ({uploadedFiles.length})
+                                    Files đang xử lý ({uploadedFiles.length})
                                 </h3>
                                 <button
                                     onClick={clearAll}
                                     className="text-red-600 hover:text-red-800 text-sm font-medium"
                                 >
-                                    Xóa tất cả
+                                    Xóa tất cả khỏi danh sách
                                 </button>
                             </div>
 
@@ -527,6 +515,8 @@ const ChatbotDataUpload = () => {
                                         fileData.category
                                     );
                                     const IconComponent = categoryInfo.icon;
+                                    const statusInfo =
+                                        getStatusIconAndText(fileData);
 
                                     return (
                                         <div
@@ -534,13 +524,15 @@ const ChatbotDataUpload = () => {
                                             className="border border-gray-200 rounded-lg p-4"
                                         >
                                             <div className="flex items-center justify-between">
-                                                <div className="flex items-center space-x-3 flex-1">
+                                                <div className="flex items-center space-x-3 flex-1 min-w-0">
+                                                    {" "}
+                                                    {/* Added min-w-0 for truncation */}
                                                     <div className="flex-shrink-0">
-                                                        {getStatusIcon(
-                                                            fileData.status
-                                                        )}
+                                                        {statusInfo.icon}
                                                     </div>
                                                     <div className="flex-1 min-w-0">
+                                                        {" "}
+                                                        {/* Added min-w-0 */}
                                                         <div className="flex items-center space-x-2">
                                                             <p className="text-sm font-medium text-gray-900 truncate">
                                                                 {fileData.name}
@@ -554,38 +546,63 @@ const ChatbotDataUpload = () => {
                                                                 }
                                                             </span>
                                                         </div>
-                                                        <div className="flex items-center space-x-4 mt-1">
-                                                            <p className="text-xs text-gray-500">
+                                                        <div className="flex items-center space-x-2 mt-1 text-xs text-gray-500">
+                                                            {" "}
+                                                            {/* Grouped small info */}
+                                                            <span>
                                                                 {formatFileSize(
                                                                     fileData.size
                                                                 )}
-                                                            </p>
-                                                            <p className="text-xs text-gray-500">
-                                                                {allowedFileTypes[
-                                                                    fileData
-                                                                        .type
-                                                                ] || "Unknown"}
-                                                            </p>
-                                                            {fileData.processedRecords >
-                                                                0 && (
-                                                                <p className="text-xs text-green-600">
+                                                            </span>
+                                                            <span>|</span>
+                                                            <span>
+                                                                {fileData.type ||
+                                                                    "Unknown type"}
+                                                            </span>
+                                                            <span>|</span>
+                                                            <span
+                                                                className={
+                                                                    statusInfo.color
+                                                                }
+                                                            >
+                                                                {
+                                                                    statusInfo.text
+                                                                }
+                                                            </span>
+                                                        </div>
+                                                        {fileData.error &&
+                                                            fileData.status !==
+                                                                "skipped" && ( // Don't show generic "skipped" message as error
+                                                                <p className="text-xs text-red-600 mt-1">
+                                                                    Lỗi chi
+                                                                    tiết:{" "}
                                                                     {
-                                                                        fileData.processedRecords
-                                                                    }{" "}
-                                                                    bản ghi đã
-                                                                    xử lý
+                                                                        fileData.error
+                                                                    }
                                                                 </p>
                                                             )}
-                                                        </div>
-                                                        {fileData.error && (
-                                                            <p className="text-xs text-red-600 mt-1">
-                                                                {fileData.error}
+                                                        {fileData.status ===
+                                                            "skipped" &&
+                                                            fileData.error && (
+                                                                <p className="text-xs text-gray-600 mt-1">
+                                                                    Thông báo:{" "}
+                                                                    {
+                                                                        fileData.error
+                                                                    }
+                                                                </p>
+                                                            )}
+                                                        {fileData.backend_output_path && (
+                                                            <p className="text-xs text-gray-500 mt-1">
+                                                                Đã lưu tại:{" "}
+                                                                {
+                                                                    fileData.backend_output_path
+                                                                }
                                                             </p>
                                                         )}
                                                     </div>
                                                 </div>
 
-                                                <div className="flex items-center space-x-2">
+                                                <div className="flex items-center space-x-2 flex-shrink-0">
                                                     {fileData.status ===
                                                         "error" && (
                                                         <button
@@ -607,71 +624,25 @@ const ChatbotDataUpload = () => {
                                                             )
                                                         }
                                                         className="p-1 text-red-600 hover:text-red-800"
-                                                        title="Xóa"
+                                                        title="Xóa khỏi danh sách"
                                                     >
                                                         <Trash2 className="h-4 w-4" />
                                                     </button>
                                                 </div>
                                             </div>
 
-                                            {/* Progress Bar */}
+                                            {/* Progress Bar for uploading - status text now handles other states */}
                                             {fileData.status ===
                                                 "uploading" && (
-                                                <div className="mt-3">
-                                                    <div className="flex justify-between text-xs text-gray-600 mb-1">
-                                                        <span>
-                                                            Đang upload...
-                                                        </span>
-                                                        <span>
-                                                            {fileData.progress}%
-                                                        </span>
-                                                    </div>
+                                                <div className="mt-2">
                                                     <div className="w-full bg-gray-200 rounded-full h-2">
                                                         <div
-                                                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                                            className="bg-blue-600 h-2 rounded-full transition-all duration-150"
                                                             style={{
                                                                 width: `${fileData.progress}%`,
                                                             }}
                                                         />
                                                     </div>
-                                                </div>
-                                            )}
-
-                                            {/* Processing Status */}
-                                            {processingStatus[fileData.id] && (
-                                                <div className="mt-3 flex items-center space-x-2">
-                                                    {processingStatus[
-                                                        fileData.id
-                                                    ] === "processing" && (
-                                                        <>
-                                                            <RefreshCw className="h-4 w-4 text-blue-500 animate-spin" />
-                                                            <span className="text-sm text-blue-600">
-                                                                Đang xử lý dữ
-                                                                liệu...
-                                                            </span>
-                                                        </>
-                                                    )}
-                                                    {processingStatus[
-                                                        fileData.id
-                                                    ] === "completed" && (
-                                                        <>
-                                                            <CheckCircle className="h-4 w-4 text-green-500" />
-                                                            <span className="text-sm text-green-600">
-                                                                Xử lý hoàn tất
-                                                            </span>
-                                                        </>
-                                                    )}
-                                                    {processingStatus[
-                                                        fileData.id
-                                                    ] === "failed" && (
-                                                        <>
-                                                            <AlertCircle className="h-4 w-4 text-red-500" />
-                                                            <span className="text-sm text-red-600">
-                                                                Lỗi xử lý dữ
-                                                                liệu
-                                                            </span>
-                                                        </>
-                                                    )}
                                                 </div>
                                             )}
                                         </div>
@@ -694,10 +665,11 @@ const ChatbotDataUpload = () => {
                             </h4>
                             <ul className="text-sm text-blue-700 space-y-1">
                                 <li>• PDF - Văn bản pháp luật, quy định</li>
-                                <li>• DOC/DOCX - Tài liệu Word</li>
+                                <li>
+                                    • DOCX - Tài liệu Word (khuyến nghị OpenXML)
+                                </li>
                                 <li>• TXT - File text thuần</li>
-                                <li>• JSON - Dữ liệu có cấu trúc</li>
-                                <li>• CSV/XLS/XLSX - Dữ liệu bảng</li>
+                                <li>• MD - File Markdown</li>
                             </ul>
                         </div>
                         <div>
@@ -706,12 +678,17 @@ const ChatbotDataUpload = () => {
                             </h4>
                             <ul className="text-sm text-blue-700 space-y-1">
                                 <li>• Kích thước file tối đa: 50MB</li>
-                                <li>• Đảm bảo nội dung bằng tiếng Việt</li>
                                 <li>
-                                    • Chọn đúng loại dữ liệu trước khi upload
+                                    • Đảm bảo nội dung bằng tiếng Việt và đúng
+                                    định dạng.
                                 </li>
                                 <li>
-                                    • Kiểm tra lại thông tin trước khi xác nhận
+                                    • Hệ thống sẽ tự động xử lý file sau khi tải
+                                    lên thành công.
+                                </li>
+                                <li>
+                                    • File đã tồn tại trên server với cùng tên
+                                    sẽ được bỏ qua.
                                 </li>
                             </ul>
                         </div>

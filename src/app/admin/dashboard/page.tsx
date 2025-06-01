@@ -20,8 +20,9 @@ import { useAuth } from "@/app/contexts/AuthContext";
 import UserManagementSystem from "@/app/components/UserManagementSystem";
 import ChatBox from "@/app/components/Chatbot";
 import ChatbotDataUpload from "@/app/components/DataUploadAdmin";
-import { Router } from "next/router";
+
 import { useRouter } from "next/navigation";
+import AdminSettingsPage from "@/app/components/AdminSettingsPage";
 
 export default function AdminDashboard() {
     const [activeTab, setActiveTab] = useState("clients");
@@ -39,6 +40,7 @@ export default function AdminDashboard() {
     const [newMessage, setNewMessage] = useState("");
     const [isTyping, setIsTyping] = useState(false);
     const chatEndRef = useRef<HTMLDivElement>(null);
+    const router = useRouter();
 
     const scrollToBottom = () => {
         chatEndRef?.current?.scrollIntoView({ behavior: "smooth" });
@@ -161,10 +163,6 @@ export default function AdminDashboard() {
         },
     ];
 
-    const renderChatbot = () => {
-        <ChatBox />;
-    };
-
     const { isAuthorized, isLoading, isAuthenticated } = useRouteGuard({
         requireAuth: true,
         adminOnly: true,
@@ -229,7 +227,11 @@ export default function AdminDashboard() {
                     <div className="space-y-2">
                         {[
                             { id: "clients", label: "Người dùng", icon: Users },
-                            { id: "chatbot", label: "JuriBot", icon: Bot },
+                            {
+                                id: "chatbot",
+                                label: "Truy cập JuriBot",
+                                icon: Bot,
+                            },
                             { id: "docs", label: "Tài liệu", icon: FileText },
                             {
                                 id: "settings",
@@ -239,7 +241,11 @@ export default function AdminDashboard() {
                         ].map((item) => (
                             <button
                                 key={item.id}
-                                onClick={() => setActiveTab(item.id)}
+                                onClick={() =>
+                                    item.id === "chatbot"
+                                        ? router.push("/")
+                                        : setActiveTab(item.id)
+                                }
                                 className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 ${
                                     activeTab === item.id
                                         ? "bg-blue-50 text-blue-600 border-r-2 border-blue-600"
@@ -352,18 +358,8 @@ export default function AdminDashboard() {
                 {/* Page Content */}
                 <main className="p-6">
                     {activeTab === "clients" && <UserManagementSystem />}
-                    {activeTab === "chatbot" && renderChatbot()}
                     {activeTab === "docs" && <ChatbotDataUpload />}
-                    {activeTab === "settings" && (
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                                Settings
-                            </h3>
-                            <p className="text-gray-600">
-                                Configuration options coming soon...
-                            </p>
-                        </div>
-                    )}
+                    {activeTab === "settings" && <AdminSettingsPage />}
                 </main>
             </div>
 

@@ -3,6 +3,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 import "@fontsource/inter/index.css";
 import { AuthProvider } from "./contexts/AuthContext";
+import { ThemeProvider } from "./contexts/ThemeContext";
 
 export const metadata: Metadata = {
     title: "JuriBot - Hỏi đáp pháp luật với AI",
@@ -22,7 +23,9 @@ export default function RootLayout({
     return (
         <html lang="vi">
             <body className="min-h-screen bg-white">
-                <AuthProvider>{children}</AuthProvider>
+                <ThemeProvider>
+                    <AuthProvider>{children}</AuthProvider>
+                </ThemeProvider>
             </body>
         </html>
     );
