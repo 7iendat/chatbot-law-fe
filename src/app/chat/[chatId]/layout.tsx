@@ -1,22 +1,17 @@
-// app/chat/[chatId]/layout.tsx
-import { Metadata, ResolvingMetadata } from "next";
+import { Metadata } from "next";
+import { ReactNode } from "react";
 
+// Định nghĩa type cho props của layout và generateMetadata
 type Props = {
     params: { chatId: string };
+    children?: ReactNode; // Thêm children để khớp với LayoutProps
 };
 
-export async function generateMetadata(
-    props: Props, // Nhận toàn bộ props
-    parent?: ResolvingMetadata
-): Promise<Metadata> {
-    // Thử await trực tiếp props.params
-    // Điều này có thể không đúng về mặt type, nhưng hãy xem Turbopack xử lý thế nào
-    // Bạn có thể cần ép kiểu (props.params as any) nếu TypeScript báo lỗi
-    const resolvedParams = await (props.params as any); // Thử nghiệm
+// Hàm generateMetadata
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+    const { chatId } = params; // Truy cập trực tiếp, không cần await
 
-    const chatId = resolvedParams.chatId;
-
-    console.log("[Layout] generateMetadata - resolvedParams:", resolvedParams);
+    console.log("[Layout] generateMetadata - params:", params);
     console.log("[Layout] generateMetadata - Extracted chatId:", chatId);
 
     let truncatedChatId = "ID không xác định";
@@ -35,11 +30,7 @@ export async function generateMetadata(
     };
 }
 
-// Component Layout của bạn
-export default function ChatLayout({
-    children,
-}: {
-    children: React.ReactNode;
-}) {
+// Component Layout
+export default function ChatLayout({ children, params }: Props) {
     return <div className="chat-layout h-screen w-screen">{children}</div>;
 }
