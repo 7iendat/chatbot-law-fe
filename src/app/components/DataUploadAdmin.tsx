@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
     Upload,
     FileText,
@@ -31,12 +31,12 @@ interface UploadedFile {
         | "processing_backend"
         | "skipped"
         | "error"
-        | "success_processed"; // success_processed for future when backend confirms
+        | "success"; // Đổi tên từ success_processed để rõ ràng hơn
     progress: number;
     uploadedAt: string;
     error: string | null;
     backend_filename?: string | null;
-    backend_output_path?: string | null;
+    // backend_output_path?: string | null;
     // processedRecords: number; // This was removed as backend /upload doesn't provide it immediately
 }
 
@@ -55,7 +55,8 @@ const ChatbotDataUpload = () => {
     // processingStatus is now part of the fileData.status
     // const [processingStatus, setProcessingStatus] = useState({}); // Removed
     const fileInputRef = useRef<HTMLInputElement>(null);
-
+    const [isUploading, setIsUploading] = useState(false);
+    const [overallProgress, setOverallProgress] = useState(0);
     // Backend supported extensions: .pdf, .txt, .md, .docx
     // Adjusted categories to better reflect backend support
     const categories = [
@@ -110,7 +111,108 @@ const ChatbotDataUpload = () => {
             }
         }
     };
+    const handleUploadAll = useCallback(async () => {
+        const filesToUpload = uploadedFiles.filter(
+            (f) => f.status === "pending"
+        );
+        if (filesToUpload.length === 0 || isUploading) return;
 
+        setIsUploading(true);
+        setOverallProgress(0); // Bắt đầu upload
+
+        // Đánh dấu các file đang được upload
+        setUploadedFiles((prev) =>
+            prev.map((f) =>
+                f.status === "pending"
+                    ? { ...f, status: "uploading", error: null }
+                    : f
+            )
+        );
+
+        const fileObjects = filesToUpload.map((f) => f.file);
+
+        try {
+            const response = await documentApi.uploadMultipleDocuments(
+                fileObjects,
+                (progress) => {
+                    // Giữ nguyên progress cho phần upload
+                    setOverallProgress(progress.percentage);
+                    if (progress.percentage === 100) {
+                        // Khi upload xong 100%, chuyển toàn bộ sang trạng thái 'processing_backend'
+                        // để người dùng biết server đang làm việc
+                        setUploadedFiles((prev) =>
+                            prev.map((f) =>
+                                f.status === "uploading"
+                                    ? { ...f, status: "processing_backend" }
+                                    : f
+                            )
+                        );
+                    }
+                }
+            );
+
+            // API bây giờ chỉ trả về khi ĐÃ XỬ LÝ XONG
+            setUploadedFiles((prev) =>
+                prev.map((f) => {
+                    // Tìm trong danh sách xử lý thành công
+                    const processed = response.accepted_files.find((pf) =>
+                        pf.filename.includes(f.name)
+                    );
+                    if (processed) {
+                        return {
+                            ...f,
+                            status: "success",
+                            hash: processed.hash,
+                        };
+                    }
+
+                    // Tìm trong danh sách lỗi/bỏ qua
+                    const failed = response.skipped_files.find(
+                        (ff) => ff.filename === f.name
+                    );
+                    if (failed) {
+                        return { ...f, status: "error", error: failed.reason };
+                    }
+
+                    return f; // Giữ nguyên các file không thuộc batch này
+                })
+            );
+
+            // Cập nhật thống kê
+            setUploadStats((prev) => ({
+                ...prev,
+                successfulUploads:
+                    prev.successfulUploads + response.accepted_files.length,
+                failedUploads:
+                    prev.failedUploads + response.skipped_files.length,
+            }));
+        } catch (error: any) {
+            // Lỗi toàn bộ request (ví dụ: timeout)
+            setUploadedFiles((prev) =>
+                prev.map((f) =>
+                    f.status === "uploading" ||
+                    f.status === "processing_backend"
+                        ? {
+                              ...f,
+                              status: "error",
+                              error:
+                                  error.message ===
+                                  "No valid new files were accepted for processing."
+                                      ? "Tài liệu đã có trong kho dữ liệu"
+                                      : error.message || "Lỗi không xác định",
+                          }
+                        : f
+                )
+            );
+            setUploadStats((prev) => ({
+                ...prev,
+                failedUploads: prev.failedUploads + filesToUpload.length,
+            }));
+        } finally {
+            setIsUploading(false);
+            setOverallProgress(0);
+        }
+    }, [uploadedFiles, isUploading]);
     const handleFiles = (files: File[]) => {
         const validFiles = files.filter((file) => {
             const fileExtension =
@@ -141,6 +243,19 @@ const ChatbotDataUpload = () => {
             return true;
         });
 
+        // const newFiles: UploadedFile[] = validFiles.map((file) => ({
+        //     id: Date.now() + Math.random(),
+        //     file,
+        //     name: file.name,
+        //     size: file.size,
+        //     type: file.type,
+        //     category: selectedCategory,
+        //     status: "pending",
+        //     progress: 0,
+        //     uploadedAt: new Date().toISOString(),
+        //     error: null,
+        //     // processedRecords: 0, // Removed
+        // }));
         const newFiles: UploadedFile[] = validFiles.map((file) => ({
             id: Date.now() + Math.random(),
             file,
@@ -152,113 +267,123 @@ const ChatbotDataUpload = () => {
             progress: 0,
             uploadedAt: new Date().toISOString(),
             error: null,
-            // processedRecords: 0, // Removed
         }));
 
         setUploadedFiles((prev) => [...prev, ...newFiles]);
-        newFiles.forEach((fileData) => uploadSingleFile(fileData)); // Changed to uploadSingleFile
+        // newFiles.forEach((fileData) => uploadSingleFile(fileData)); // Changed to uploadSingleFile
     };
 
     // Renamed from uploadFile to avoid conflict if old one is still around
-    const uploadSingleFile = async (fileData: UploadedFile) => {
-        setUploadedFiles((prev) =>
-            prev.map((f) =>
-                f.id === fileData.id
-                    ? { ...f, status: "uploading", progress: 0, error: null }
-                    : f
-            )
-        );
+    // const uploadSingleFile = async (fileData: UploadedFile) => {
+    //     setUploadedFiles((prev) =>
+    //         prev.map((f) =>
+    //             f.id === fileData.id
+    //                 ? { ...f, status: "uploading", progress: 0, error: null }
+    //                 : f
+    //         )
+    //     );
 
-        try {
-            const response = await documentApi.uploadDocument(
-                fileData.file,
-                (progressUpdate: any) => {
-                    setUploadedFiles((prev) =>
-                        prev.map((f) =>
-                            f.id === fileData.id
-                                ? { ...f, progress: progressUpdate.percentage }
-                                : f
-                        )
-                    );
-                }
-            );
+    //     try {
+    //         const response = await documentApi.uploadMultipleDocuments(
+    //             fileData.file,
+    //             (progressUpdate: any) => {
+    //                 setUploadedFiles((prev) =>
+    //                     prev.map((f) =>
+    //                         f.id === fileData.id
+    //                             ? { ...f, progress: progressUpdate.percentage }
+    //                             : f
+    //                     )
+    //                 );
+    //             }
+    //         );
 
-            if (response.status === "processing") {
-                setUploadedFiles((prev) =>
-                    prev.map((f) =>
-                        f.id === fileData.id
-                            ? {
-                                  ...f,
-                                  status: "processing_backend",
-                                  progress: 100,
-                                  backend_filename: response.filename,
-                                  backend_output_path: response.output_path,
-                              }
-                            : f
-                    )
-                );
-                setUploadStats((prevStats) => ({
-                    // Use functional update for stats
-                    ...prevStats,
-                    successfulUploads: prevStats.successfulUploads + 1,
-                }));
-            } else if (response.status === "skipped") {
-                setUploadedFiles((prev) =>
-                    prev.map((f) =>
-                        f.id === fileData.id
-                            ? {
-                                  ...f,
-                                  status: "skipped",
-                                  progress: 100,
-                                  error: response.message,
-                                  backend_filename: response.filename,
-                              }
-                            : f
-                    )
-                );
-                // Skipped files are not errors, but also not "newly processed"
-            } else {
-                // Should not happen if types are aligned
-                throw new Error(
-                    response.message ||
-                        `Trạng thái không mong đợi từ server: ${response.status}`
-                );
-            }
-        } catch (error: any) {
-            setUploadedFiles((prev) =>
-                prev.map((f) =>
-                    f.id === fileData.id
-                        ? {
-                              ...f,
-                              status: "error",
-                              error:
-                                  error.message ||
-                                  "Lỗi không xác định khi tải lên.",
-                          }
-                        : f
-                )
-            );
-            setUploadStats((prevStats) => ({
-                // Use functional update for stats
-                ...prevStats,
-                failedUploads: prevStats.failedUploads + 1,
-            }));
-        }
-    };
+    //         if (response.status === "processing") {
+    //             setUploadedFiles((prev) =>
+    //                 prev.map((f) =>
+    //                     f.id === fileData.id
+    //                         ? {
+    //                               ...f,
+    //                               status: "processing_backend",
+    //                               progress: 100,
+    //                               backend_filename: response.filename,
+    //                               backend_output_path: response.output_path,
+    //                           }
+    //                         : f
+    //                 )
+    //             );
+    //             setUploadStats((prevStats) => ({
+    //                 // Use functional update for stats
+    //                 ...prevStats,
+    //                 successfulUploads: prevStats.successfulUploads + 1,
+    //             }));
+    //         } else if (response.status === "skipped") {
+    //             setUploadedFiles((prev) =>
+    //                 prev.map((f) =>
+    //                     f.id === fileData.id
+    //                         ? {
+    //                               ...f,
+    //                               status: "skipped",
+    //                               progress: 100,
+    //                               error: response.message,
+    //                               backend_filename: response.filename,
+    //                           }
+    //                         : f
+    //                 )
+    //             );
+    //             // Skipped files are not errors, but also not "newly processed"
+    //         } else {
+    //             // Should not happen if types are aligned
+    //             throw new Error(
+    //                 response.message ||
+    //                     `Trạng thái không mong đợi từ server: ${response.status}`
+    //             );
+    //         }
+    //     } catch (error: any) {
+    //         setUploadedFiles((prev) =>
+    //             prev.map((f) =>
+    //                 f.id === fileData.id
+    //                     ? {
+    //                           ...f,
+    //                           status: "error",
+    //                           error:
+    //                               error.message ||
+    //                               "Lỗi không xác định khi tải lên.",
+    //                       }
+    //                     : f
+    //             )
+    //         );
+    //         setUploadStats((prevStats) => ({
+    //             // Use functional update for stats
+    //             ...prevStats,
+    //             failedUploads: prevStats.failedUploads + 1,
+    //         }));
+    //     }
+    // };
 
     // processFile is no longer needed as the backend /upload schedules processing
 
+    // const retryUpload = (fileData: UploadedFile) => {
+    //     const fileToRetry = {
+    //         ...fileData,
+    //         status: "pending" as "pending", // Type assertion
+    //         error: null,
+    //         progress: 0,
+    //     };
+    //     setUploadedFiles((prev) =>
+    //         prev.map((f) => (f.id === fileData.id ? fileToRetry : f))
+    //     );
+    //     uploadSingleFile(fileToRetry);
+    // };
     const retryUpload = (fileData: UploadedFile) => {
-        const fileToRetry = {
-            ...fileData,
-            status: "pending" as "pending", // Type assertion
-            error: null,
-            progress: 0,
-        };
+        // Đơn giản là reset trạng thái của file này thành pending
         setUploadedFiles((prev) =>
-            prev.map((f) => (f.id === fileData.id ? fileToRetry : f))
+            prev.map((f) =>
+                f.id === fileData.id
+                    ? { ...f, status: "pending", error: null, progress: 0 }
+                    : f
+            )
         );
-        uploadSingleFile(fileToRetry);
+        // Người dùng sẽ cần nhấn nút "Upload All" một lần nữa
     };
 
     const removeFile = (fileId: number) => {
@@ -293,7 +418,7 @@ const ChatbotDataUpload = () => {
                     text: "Đang xử lý (server)",
                     color: "text-yellow-600",
                 };
-            case "success_processed": // For future use when backend confirms processing is done
+            case "success": // For future use when backend confirms processing is done
                 return {
                     icon: <CheckCircle className="h-5 w-5 text-green-500" />,
                     text: "Hoàn tất xử lý",
@@ -501,14 +626,51 @@ const ChatbotDataUpload = () => {
                                 <h3 className="text-lg font-semibold text-gray-900">
                                     Files đang xử lý ({uploadedFiles.length})
                                 </h3>
-                                <button
-                                    onClick={clearAll}
-                                    className="text-red-600 hover:text-red-800 text-sm font-medium"
-                                >
-                                    Xóa tất cả khỏi danh sách
-                                </button>
+                                {/* NÚT UPLOAD MỚI */}
+                                <div className="flex items-center space-x-4">
+                                    <button
+                                        onClick={handleUploadAll}
+                                        disabled={
+                                            isUploading ||
+                                            uploadedFiles.every(
+                                                (f) => f.status !== "pending"
+                                            )
+                                        }
+                                        className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
+                                    >
+                                        {isUploading ? (
+                                            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                                        ) : (
+                                            <Upload className="h-5 w-5 mr-2" />
+                                        )}
+                                        {isUploading
+                                            ? "Đang tải lên..."
+                                            : "Tải lên tất cả"}
+                                    </button>
+                                    <button
+                                        onClick={clearAll}
+                                        className="text-red-600 hover:text-red-800 text-sm font-medium"
+                                    >
+                                        Xóa tất cả
+                                    </button>
+                                </div>
                             </div>
-
+                            {/* Thanh progress tổng */}
+                            {isUploading && (
+                                <div className="mb-4">
+                                    <div className="w-full bg-gray-200 rounded-full h-2.5">
+                                        <div
+                                            className="bg-green-600 h-2.5 rounded-full transition-all duration-300"
+                                            style={{
+                                                width: `${overallProgress}%`,
+                                            }}
+                                        />
+                                    </div>
+                                    <p className="text-sm text-center text-gray-600 mt-1">
+                                        Đang tải lên... {overallProgress}%
+                                    </p>
+                                </div>
+                            )}
                             <div className="space-y-3">
                                 {uploadedFiles.map((fileData) => {
                                     const categoryInfo = getCategoryInfo(
@@ -574,8 +736,7 @@ const ChatbotDataUpload = () => {
                                                             fileData.status !==
                                                                 "skipped" && ( // Don't show generic "skipped" message as error
                                                                 <p className="text-xs text-red-600 mt-1">
-                                                                    Lỗi chi
-                                                                    tiết:{" "}
+                                                                    {" "}
                                                                     {
                                                                         fileData.error
                                                                     }
@@ -591,14 +752,6 @@ const ChatbotDataUpload = () => {
                                                                     }
                                                                 </p>
                                                             )}
-                                                        {fileData.backend_output_path && (
-                                                            <p className="text-xs text-gray-500 mt-1">
-                                                                Đã lưu tại:{" "}
-                                                                {
-                                                                    fileData.backend_output_path
-                                                                }
-                                                            </p>
-                                                        )}
                                                     </div>
                                                 </div>
 

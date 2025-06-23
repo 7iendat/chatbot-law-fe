@@ -27,7 +27,7 @@ const MenuDropProfile = ({ collapsed }: any) => {
     const handleChangePasswordClick = () => {
         setShowChangePasswordModal(true);
     };
-    const { logout } = useAuth();
+    const { logout, user } = useAuth();
     const { theme, setTheme, effectiveTheme } = useTheme();
 
     // Animate in when component mounts
@@ -244,9 +244,9 @@ const MenuDropProfile = ({ collapsed }: any) => {
                                     className={`${submenuBgClass} backdrop-blur-sm border ${borderColorClass} rounded-lg shadow-xl z-50 overflow-hidden w-36`}
                                 >
                                     <li
-                                        className={`px-4 py-3 cursor-pointer text-sm transition-all duration-150 ease-in-out transform hover:translate-x-1 ${submenuItemHoverBgClass}`}
+                                        className={`hidden px-4 py-3 cursor-pointer text-sm transition-all duration-150 ease-in-out transform hover:translate-x-1 ${submenuItemHoverBgClass}`}
                                     >
-                                        <span className="flex items-center gap-2">
+                                        <span className="flex items-center gap-2 ">
                                             🇺🇸 Tiếng anh
                                         </span>
                                     </li>
@@ -263,7 +263,11 @@ const MenuDropProfile = ({ collapsed }: any) => {
                     </li>
 
                     {/* Change Password Button */}
-                    <li>
+                    <li
+                        className={`${
+                            user?.login_type === "google" ? "hidden" : ""
+                        }`}
+                    >
                         <button
                             className={`w-full text-left text-sm rounded-lg p-3 cursor-pointer transition-all duration-200 ease-in-out transform hover:scale-[1.02] group ${
                                 effectiveTheme === "dark"

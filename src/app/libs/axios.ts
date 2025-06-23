@@ -11,7 +11,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "/api"; // Giả s�
 
 const apiClient: AxiosInstance = axios.create({
     baseURL: API_BASE_URL,
-    timeout: 300000,
+    timeout: 90000,
     // BỎ header 'Content-Type': 'application/json' mặc định ở đây
     // Chúng ta sẽ xử lý nó trong interceptor để linh hoạt hơn
     headers: {

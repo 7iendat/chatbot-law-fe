@@ -1,20 +1,20 @@
-// app/chat/[chatId]/loading.tsx
-import { Bot } from "lucide-react";
+// src/app/chat/loading.tsx
 
-export default function Loading() {
+import React from "react";
+import { MessageSquareDashed } from "lucide-react";
+
+// Đây là một component server, nó không cần "use client"
+export default function ChatLoading() {
     return (
-        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
-            <div className="text-center">
-                <div className="relative mb-6">
-                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center mx-auto animate-pulse">
-                        <Bot size={32} className="text-white" />
-                    </div>
-                    <div className="absolute inset-0 w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+        <div className="flex flex-col items-center justify-center h-full w-full bg-gray-50 dark:bg-gray-900 text-gray-500">
+            <div className="flex items-center space-x-4 animate-pulse">
+                <MessageSquareDashed className="w-10 h-10 text-blue-400" />
+                <div>
+                    <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">
+                        Đang tải cuộc trò chuyện...
+                    </h2>
+                    <p className="text-sm">Vui lòng chờ trong giây lát.</p>
                 </div>
-                <h2 className="text-xl font-semibold text-gray-800 mb-2">
-                    Đang tải cuộc hội thoại
-                </h2>
-                <p className="text-gray-600">Vui lòng đợi trong giây lát...</p>
             </div>
         </div>
     );

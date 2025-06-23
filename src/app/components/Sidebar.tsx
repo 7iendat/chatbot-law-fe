@@ -197,7 +197,9 @@ export default function Sidebar({ collapsed, currentChatId }: SidebarProps) {
                                         error instanceof Error
                                             ? error.message
                                             : "Lỗi không xác định";
-                                    toast.error(`Lỗi xóa: ${message}`);
+                                    toast.error(`Lỗi xóa: ${message}`, {
+                                        duration: 1000,
+                                    });
                                 }
                             }}
                             className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-md text-sm"
@@ -236,12 +238,11 @@ export default function Sidebar({ collapsed, currentChatId }: SidebarProps) {
                     {" "}
                     {/* Logo & Buttons Container */}
                     <div
-                        className={`group relative flex items-center gap-3 mb-3 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 rounded-xl p-3 cursor-pointer transition-all duration-300 transform hover:scale-[1.02] ${
+                        className={`group relative flex items-center gap-3 mb-3  rounded-xl p-3 transition-all duration-300 transform hover:scale-[1.02] ${
                             collapsed ? "justify-center" : "justify-start"
                         }`}
                         onMouseEnter={() => setIsHoveringLogo(true)}
                         onMouseLeave={() => setIsHoveringLogo(false)}
-                        onClick={() => router.push("/")}
                         title="Trang chủ JuriBot"
                     >
                         <div className="relative flex-shrink-0">
@@ -308,7 +309,7 @@ export default function Sidebar({ collapsed, currentChatId }: SidebarProps) {
                     <button
                         onClick={handleNewChat}
                         title="Tạo cuộc trò chuyện mới"
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02] group relative ${
+                        className={`w-full cursor-pointer flex items-center gap-3 px-3 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02] group relative ${
                             collapsed ? "justify-center" : ""
                         }`}
                     >
@@ -569,7 +570,11 @@ export default function Sidebar({ collapsed, currentChatId }: SidebarProps) {
                 {" "}
                 {/* Profile Section */}
                 <div
-                    className={`mb-2 border border-gray-200 hover:border-blue-300 flex items-center gap-3 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 p-2.5 rounded-xl cursor-pointer transition-all duration-300 transform hover:scale-[1.01] hover:shadow-md group ${
+                    className={`mb-2 border ${
+                        effectiveTheme === "dark"
+                            ? "border-gray-200"
+                            : "border-gray-600"
+                    } hover:border-blue-300 flex items-center gap-3 hover:bg-gradient-to-r  p-2.5 rounded-xl cursor-pointer transition-all duration-300 transform hover:scale-[1.01] hover:shadow-md group ${
                         collapsed ? "justify-center" : ""
                     }`}
                     onClick={handleMenuToggle}

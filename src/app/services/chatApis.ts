@@ -14,7 +14,7 @@ interface SourceDocument {
     source: string;
     page_content_preview: string;
 }
-interface AnswerResponse {
+export interface AnswerResponse {
     // Dùng cho API /chat (non-streaming)
     answer: string;
     sources: SourceDocument[] | string | null; // Backend có thể trả về string nếu là "dictionary"
@@ -53,7 +53,8 @@ export interface ApiChatHistoryResponse {
 export interface StreamDataPayload {
     // Dữ liệu cho mỗi token stream
     token?: string;
-    is_final?: boolean; // Cờ báo hiệu chunk cuối (tùy chọn, backend có thể không gửi)
+    is_final?: boolean;
+    // Cờ báo hiệu chunk cuối (tùy chọn, backend có thể không gửi)
     // Không nên gửi source ở đây, dùng event riêng cho sources
 }
 
@@ -74,6 +75,7 @@ export interface StreamErrorPayload {
     detail?: string;
     status_code?: number;
 }
+
 // --- KẾT THÚC INTERFACES CHO STREAMING ---
 
 export const chatApis = {

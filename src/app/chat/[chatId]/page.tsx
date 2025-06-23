@@ -14,9 +14,9 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Toaster, toast } from "react-hot-toast";
 import { useAuth } from "@/app/contexts/AuthContext";
 import { useRouteGuard } from "@/app/hooks/useRouteGuard";
-import { AuthLoadingSpinner } from "@/app/components/AuthLoadingSpinner";
 import { chatApis, ApiChatHistoryMessage } from "@/app/services/chatApis";
 import { useTheme } from "@/app/contexts/ThemeContext";
+import ChatLoading from "./loading";
 
 const ChatPage = () => {
     const { user, logout } = useAuth();
@@ -38,11 +38,7 @@ const ChatPage = () => {
     const [showSidebar, setShowSidebar] = useState(false);
     const [collapseSidebar, setCollapseSidebar] = useState(false);
 
-    const {
-        isAuthorized,
-        isLoading: authIsLoading,
-        isAuthenticated,
-    } = useRouteGuard({
+    const { isAuthorized, isLoading: authIsLoading } = useRouteGuard({
         requireAuth: true,
         redirectTo: "/welcome",
     });
@@ -100,8 +96,8 @@ const ChatPage = () => {
         }
     }, [chatIdFromParams, user, isAuthorized, router]);
 
-    if (authIsLoading || (!isAuthorized && !isAuthenticated)) {
-        return <AuthLoadingSpinner />;
+    if (authIsLoading || !isAuthorized) {
+        return <ChatLoading />;
     }
     if (!isAuthorized) {
         return null;
@@ -188,7 +184,7 @@ const ChatPage = () => {
                 {/* ChatBox */}
                 {isLoadingHistory ? (
                     <div className="flex-1 flex items-center justify-center">
-                        <AuthLoadingSpinner />
+                        <ChatLoading />
                     </div>
                 ) : (
                     <ChatBox

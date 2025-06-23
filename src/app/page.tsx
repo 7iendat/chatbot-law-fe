@@ -11,35 +11,30 @@ import {
     Send,
     Bot,
     Sparkles,
+    LayoutDashboard,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Toaster } from "react-hot-toast";
 import { useAuth } from "./contexts/AuthContext";
-import { useRouteGuard } from "./hooks/useRouteGuard";
+import { useAuthGuard, useRouteGuard } from "./hooks/useRouteGuard";
 import { AuthLoadingSpinner } from "./components/AuthLoadingSpinner";
 import { useRouter } from "next/navigation";
 import { chatApis } from "./services/chatApis";
 import { useTheme } from "./contexts/ThemeContext";
 
+const LogoutSpinner = () => (
+    <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+);
+
 const HomePage = () => {
-    const { user, logout } = useAuth();
+    const { user, logout, isLoggingOut } = useAuth();
     const router = useRouter();
     const [showSidebar, setShowSidebar] = useState(false);
     const [collapseSidebar, setCollapseSidebar] = useState(false);
     const [initialInput, setInitialInput] = useState("");
     const { effectiveTheme } = useTheme();
-    const { isAuthorized, isLoading, isAuthenticated } = useRouteGuard({
-        requireAuth: true,
-        redirectTo: "/welcome",
-    });
 
-    useEffect(() => {
-        console.log("HomePage useRouteGuard state:", {
-            isLoading,
-            isAuthorized,
-            isAuthenticated_from_hook: isAuthenticated,
-        });
-    }, [isLoading, isAuthorized, isAuthenticated]);
+    const { isLoading, isAuthorized } = useAuthGuard();
 
     const handleStartChat = async () => {
         if (!initialInput.trim()) return;
@@ -76,12 +71,7 @@ const HomePage = () => {
         }
     };
 
-    if (isLoading || (!isAuthorized && !isAuthenticated)) {
-        console.log("HomePage: Showing AuthLoadingSpinner.", {
-            isLoading,
-            isAuthorized,
-            isAuthenticated,
-        });
+    if (isLoading) {
         return <AuthLoadingSpinner />;
     }
 
@@ -152,6 +142,20 @@ const HomePage = () => {
                 className={`flex-1 flex flex-col items-center justify-center p-4 md:p-6 h-full`}
             >
                 <div className="absolute top-4 right-4 md:top-6 md:right-6 flex items-center space-x-3 z-10">
+                    {user?.role?.includes("admin") && (
+                        <button
+                            onClick={() => router.push("/admin/dashboard")}
+                            className={`flex cursor-pointer  p-2 rounded-md transition-colors ${
+                                effectiveTheme === "light"
+                                    ? "hover:bg-gray-200"
+                                    : "hover:bg-gray-700"
+                            } `}
+                            title="Dashboard"
+                        >
+                            <LayoutDashboard size={20} className="mr-2" />{" "}
+                            Dashboard
+                        </button>
+                    )}
                     <span
                         className={`text-sm hidden sm:block ${
                             effectiveTheme === "light"
@@ -163,14 +167,24 @@ const HomePage = () => {
                     </span>
                     <button
                         onClick={logout}
-                        className={`p-2 text-red-600 ${
-                            effectiveTheme === "light"
-                                ? "hover:bg-red-50"
-                                : "hover:bg-red-50/15"
-                        } rounded transition-colors cursor-pointer`}
+                        disabled={isLoggingOut} // Vô hiệu hóa nút khi đang xử lý
+                        className={`p-2 rounded transition-colors cursor-pointer flex items-center justify-center
+                                ${
+                                    isLoggingOut
+                                        ? "text-gray-400 cursor-wait"
+                                        : `text-red-600 ${
+                                              effectiveTheme === "light"
+                                                  ? "hover:bg-red-50"
+                                                  : "hover:bg-red-50/15"
+                                          }`
+                                }`}
                         title="Đăng xuất"
                     >
-                        <LogOut size={20} />
+                        {isLoggingOut ? (
+                            <LogoutSpinner />
+                        ) : (
+                            <LogOut size={20} />
+                        )}
                     </button>
                 </div>
 

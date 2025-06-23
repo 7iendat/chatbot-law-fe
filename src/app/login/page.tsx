@@ -1,11 +1,32 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef, use } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeClosed, Mail, Lock, ArrowLeft, Shield } from "lucide-react";
 import { toast, Toaster } from "react-hot-toast";
 import { authApi } from "../services/authApis";
 import { useAuth } from "../contexts/AuthContext";
+
+const GoogleIcon = () => (
+    <svg className="w-5 h-5 mr-3" viewBox="0 0 48 48" aria-hidden="true">
+        <path
+            fill="#4285F4"
+            d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C12.955 4 4 12.955 4 24s8.955 20 20 20s20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"
+        />
+        <path
+            fill="#34A853"
+            d="M43.611 20.083H24v8h11.303c-1.649 4.657-6.08 8-11.303 8V36c6.627 0 12-5.373 12-12c0-1.341-.138-2.65-.389-3.917z"
+        />
+        <path
+            fill="#FBBC05"
+            d="M12 24c0-3.059 1.154-5.842 3.039-7.961l-5.657-5.657C6.053 13.954 4 18.732 4 24s2.053 10.046 5.382 13.618l5.657-5.657C13.154 29.842 12 27.059 12 24z"
+        />
+        <path
+            fill="#EA4335"
+            d="M24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4v8c3.059 0 5.842 1.154 7.961 3.039l-5.657 5.657C29.842 13.154 27.059 12 24 12z"
+        />
+    </svg>
+);
 
 export default function LoginPage() {
     const router = useRouter();
@@ -16,6 +37,7 @@ export default function LoginPage() {
     const [showPassword, setShowPassword] = useState(false);
     const [isLoaded, setIsLoaded] = useState(false);
     const [focusedField, setFocusedField] = useState("");
+    const searchParams = useSearchParams();
 
     // Verification states
     const [showVerification, setShowVerification] = useState(false);
@@ -32,6 +54,43 @@ export default function LoginPage() {
     const [resendTimer, setResendTimer] = useState(0);
     const { login } = useAuth();
     const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+    // === EFFECT ĐỂ XỬ LÝ LỖI TỪ URL ===
+    useEffect(() => {
+        // Lấy giá trị của tham số 'error' từ URL
+        const errorParam = searchParams.get("error");
+
+        if (errorParam) {
+            let errorMessage = "Đã có lỗi xảy ra. Vui lòng thử lại.";
+            // Dịch các mã lỗi thành thông báo thân thiện với người dùng
+            switch (errorParam) {
+                case "no_code":
+                    errorMessage =
+                        "Phiên đăng nhập không hợp lệ hoặc đã hết hạn. Vui lòng thử lại.";
+                    break;
+                case "google_auth_failed":
+                    errorMessage =
+                        "Không thể xác thực với Google. Vui lòng đảm bảo bạn đã cấp quyền cho ứng dụng.";
+                    break;
+                case "token_exchange_failed":
+                    errorMessage =
+                        "Không thể hoàn tất đăng nhập. Vui lòng thử lại sau ít phút.";
+                    break;
+                case "context_error":
+                    errorMessage =
+                        "Lỗi hệ thống, không thể khởi tạo phiên đăng nhập.";
+                    break;
+            }
+
+            // Cập nhật state và hiển thị toast
+            setError(errorMessage);
+            toast.error(errorMessage, { duration: 4000 });
+
+            // Xóa tham số lỗi khỏi URL để không hiển thị lại khi người dùng refresh
+            // Bằng cách thay thế lịch sử trình duyệt
+            router.replace("/login", { scroll: false });
+        }
+    }, [searchParams, router]); // Chạy lại khi searchParams thay đổi
 
     useEffect(() => {
         setIsLoaded(true);
@@ -58,13 +117,13 @@ export default function LoginPage() {
         }
     };
 
-    const sendVerificationCodeApi = async (email: string) => {
-        return new Promise<void>((resolve) => {
-            setTimeout(() => {
-                resolve();
-            }, 1000);
-        });
-    };
+    // const sendVerificationCodeApi = async (email: string) => {
+    //     return new Promise<void>((resolve) => {
+    //         setTimeout(() => {
+    //             resolve();
+    //         }, 1000);
+    //     });
+    // };
 
     const isValidEmail = (email: string) => {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -128,6 +187,19 @@ export default function LoginPage() {
             setIsLoading(false);
         }
     }, [email, password]);
+
+    const handleGoogleLogin = () => {
+        setIsLoading(true); // Hiển thị trạng thái loading để người dùng biết có hành động xảy ra
+        try {
+            // Gọi hàm API, nó sẽ tự động chuyển hướng trang hiện tại
+            authApi.loginWithGoogle();
+        } catch (err: any) {
+            toast.error(
+                err.message || "Không thể bắt đầu đăng nhập bằng Google."
+            );
+            setIsLoading(false);
+        }
+    };
 
     const handleVerificationInput = (index: number, value: string) => {
         if (value.length > 1) return;
@@ -435,6 +507,23 @@ export default function LoginPage() {
                         <p className="text-gray-600 mt-2">
                             Chào mừng trở lại với JuriBot!
                         </p>
+                    </div>
+
+                    <button
+                        onClick={handleGoogleLogin}
+                        disabled={isLoading}
+                        className="w-full flex items-center justify-center py-3 px-4 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition-colors duration-200 disabled:opacity-50 disabled:cursor-wait cursor-pointer"
+                    >
+                        <GoogleIcon />
+                        Tiếp tục với Google
+                    </button>
+
+                    <div className="flex items-center py-2">
+                        <div className="flex-grow border-t border-gray-200"></div>
+                        <span className="flex-shrink mx-4 text-gray-400 text-xs">
+                            HOẶC ĐĂNG NHẬP VỚI EMAIL
+                        </span>
+                        <div className="flex-grow border-t border-gray-200"></div>
                     </div>
 
                     {/* Error message */}

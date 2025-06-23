@@ -1,3 +1,5 @@
+// src/contexts/AuthContext.tsx
+
 "use client";
 
 import React, {
@@ -8,185 +10,155 @@ import React, {
     useCallback,
     useMemo,
 } from "react";
-import { useRouter } from "next/navigation";
-import { authApi } from "../services/authApis"; // Import UserApiResponse
+import { useRouter, usePathname } from "next/navigation";
+import { authApi } from "../services/authApis";
 
-// Interface User có thể giống UserApiResponse hoặc là một phiên bản đơn giản hơn cho UI
+// Interface User (giữ nguyên)
 interface User {
     email: string;
     username?: string;
     role?: string;
     avatar_url?: string;
+    login_type?: string; // Thêm trường này nếu cần
 }
 
+// === BƯỚC 1: THÊM checkAuthStatus VÀO INTERFACE ===
 interface AuthContextType {
     user: User | null;
     loading: boolean;
-    login: (userData: User) => void; // Chỉ cần userData, không cần Promise nếu không có async
-    logout: () => Promise<void>; // logout nên là async để chờ API
+    login: (userData: User) => void;
+    logout: () => Promise<void>;
     isAuthenticated: boolean;
     isInitialized: boolean;
+    checkAuthStatus: () => Promise<void>;
+    isLoggingOut: boolean; // <-- HÀM ĐƯỢC THÊM VÀO
 }
+// ===============================================
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export const AuthContext = createContext<AuthContextType | undefined>(
+    undefined
+);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     children,
 }) => {
     const [user, setUser] = useState<User | null>(null);
-    const [loading, setLoading] = useState(true); // True khi context đang khởi tạo hoặc fetch user
+    const [loading, setLoading] = useState(true);
     const [isInitialized, setIsInitialized] = useState(false);
+    const [isLoggingOut, setIsLoggingOut] = useState(false);
+
     const router = useRouter();
+    const pathname = usePathname();
 
     const isAuthenticated = useMemo(() => !!user, [user]);
 
-    useEffect(() => {
-        const initializeAuth = async () => {
-            console.log("AuthContext: Initializing authentication state...");
-            setLoading(true);
-            try {
-                // Gọi API để lấy thông tin user hiện tại.
-                // API này sẽ sử dụng access_token_cookie mà trình duyệt tự gửi.
-                const response = await authApi.getCurrentUser(); // Trả về { user: UserApiResponse | null }
-                console.log(
-                    "AuthContext: Fetched current user response:",
-                    response
-                );
-
-                if (response && response.user) {
-                    const fetchedUser: User = {
-                        // Chuyển đổi từ UserApiResponse sang User nếu cần
-                        email: response.user.email,
-                        username: response.user.username,
-                        role: response.user.role,
-                        avatar_url: response.user.avatar_url,
-                    };
-                    setUser(fetchedUser);
-                    if (typeof window !== "undefined") {
-                        localStorage.setItem(
-                            "userData",
-                            JSON.stringify(fetchedUser)
-                        );
-                        console.log(
-                            "AuthContext: User data restored to state and localStorage."
-                        );
-                    }
-                } else {
-                    setUser(null);
-                    if (typeof window !== "undefined") {
-                        localStorage.removeItem("userData");
-                        console.log(
-                            "AuthContext: No valid user session found, userData cleared from localStorage."
-                        );
-                    }
-                }
-            } catch (error) {
-                console.warn(
-                    "AuthContext: Error during initial auth check (fetching current user), assuming logged out.",
-                    error
-                );
-                setUser(null);
-                if (typeof window !== "undefined") {
-                    localStorage.removeItem("userData");
-                }
-            } finally {
-                setLoading(false);
-                setIsInitialized(true);
-                // Log sau khi state đã được cập nhật (có thể dùng một effect riêng để log nếu cần độ chính xác cao hơn)
-                // console.log("AuthContext: Initialization complete.", {
-                //     isLoading: false, // Sẽ là false
-                //     isInitialized: true, // Sẽ là true
-                //     isAuthenticated: !!user, // Giá trị user ở đây có thể là của lần render trước
-                //     currentUserState: user, // Giá trị user ở đây có thể là của lần render trước
-                // });
-            }
-        };
-
-        initializeAuth();
-    }, []); // Chạy một lần khi provider mount
-
-    // Effect để log trạng thái sau khi initializeAuth hoàn tất và state đã cập nhật
-    useEffect(() => {
-        if (isInitialized) {
-            console.log("AuthContext: State after initialization.", {
-                isLoading: loading, // Nên là false
-                isInitialized, // Nên là true
-                isAuthenticated, // Dựa trên user state mới
-                user, // User state mới
-            });
-        }
-    }, [isInitialized, loading, isAuthenticated, user]);
-
-    // Redirect logic
-    useEffect(() => {
-        if (!isInitialized || loading) {
-            return; // Chờ context ổn định
-        }
-        if (typeof window === "undefined") {
-            return; // Chỉ chạy ở client
-        }
-
-        const currentPath = window.location.pathname;
-
-        if (
-            isAuthenticated &&
-            (currentPath === "/login" ||
-                currentPath === "/register" ||
-                currentPath === "/welcome")
-        ) {
-            console.log(
-                `AuthContext: Authenticated user (role: ${user?.role}) on public page (${currentPath}). Redirecting...`
-            );
-            if (user?.role === "admin") {
-                router.replace("/admin/dashboard");
-            } else {
-                router.replace("/"); // Hoặc trang dashboard mặc định của user
-            }
-        }
-        // Việc redirect NẾU KHÔNG XÁC THỰC sẽ do useRouteGuard ở từng trang đảm nhiệm.
-    }, [isInitialized, loading, isAuthenticated, user, router]);
-
-    // Hàm login được gọi sau khi backend đã xác minh và set HttpOnly cookies
-    const login = useCallback((userData: User): void => {
-        // Backend đã set cookies. Frontend chỉ cần cập nhật state và localStorage cho userData.
-        setUser(userData);
-        if (typeof window !== "undefined") {
-            localStorage.setItem("userData", JSON.stringify(userData));
-        }
-        console.log(
-            "AuthContext: User logged in. State and localStorage updated.",
-            { user: userData }
-        );
-        // Không cần Promise nếu không có thao tác bất đồng bộ nào ở đây
-    }, []);
-
-    const logout = useCallback(async () => {
-        console.log("AuthContext: Initiating logout...");
-        setLoading(true);
+    // Hàm checkAuthStatus được định nghĩa bằng useCallback
+    const checkAuthStatus = useCallback(async () => {
+        // Không set loading ở đây để tránh xung đột
+        console.log("AuthContext: Checking authentication status via API...");
         try {
-            await authApi.logout(); // Gọi API backend để xóa HttpOnly cookies
-            console.log(
-                "AuthContext: Logout API call successful. Cookies should be cleared by backend."
-            );
+            const response = await authApi.getCurrentUser();
+            if (response && response.user) {
+                const fetchedUser: User = {
+                    email: response.user.email,
+                    username: response.user.username,
+                    role: response.user.role,
+                    avatar_url: response.user.avatar_url,
+                };
+                setUser(fetchedUser);
+            } else {
+                setUser(null);
+            }
         } catch (error) {
-            console.error(
-                "AuthContext: Logout API call failed. Proceeding with client-side cleanup.",
+            console.warn(
+                "AuthContext: Auth check failed, setting user to null.",
                 error
             );
-            // Dù API lỗi, vẫn nên clear state và localStorage ở client
+            setUser(null);
+        }
+    }, []); // Hàm này không có dependency động
+
+    // useEffect để khởi tạo lần đầu
+    useEffect(() => {
+        const initialize = async () => {
+            console.log("AuthProvider: Initializing...");
+            setLoading(true);
+            await checkAuthStatus();
+            setIsInitialized(true);
+            setLoading(false);
+            console.log("AuthProvider: Initialization complete.");
+        };
+
+        initialize();
+    }, [checkAuthStatus]); // Chạy một lần khi component mount
+
+    // useEffect để xử lý chuyển hướng (logic đã được cải tiến)
+    useEffect(() => {
+        if (!isInitialized || loading) return;
+
+        // CÁC TRANG CÔNG KHAI - người dùng chưa đăng nhập được phép vào
+        const publicPaths = [
+            "/login",
+            "/register",
+            "/welcome",
+            "/forgot-password",
+        ];
+        // TRANG ĐẶC BIỆT - không được can thiệp
+        const specialPaths = ["/auth/callback"];
+
+        // Nếu đang ở trên trang đặc biệt, không làm gì cả, để cho trang đó tự xử lý
+        if (specialPaths.includes(pathname)) {
+            console.log(
+                "AuthProvider: On a special path, skipping redirect logic."
+            );
+            return;
+        }
+
+        // Kịch bản 1: Đã đăng nhập nhưng lại vào trang public -> Về dashboard
+        if (isAuthenticated && publicPaths.includes(pathname)) {
+            console.log(
+                "AuthProvider: Authenticated user on public page. Redirecting to /."
+            );
+            router.replace("/");
+        }
+
+        // Kịch bản 2: Chưa đăng nhập nhưng lại cố vào trang private -> Về trang welcome
+        // (Lưu ý: Logic này có thể được xử lý bởi RouteGuard, nhưng để ở đây cũng an toàn)
+        const isTryingToAccessPrivatePage = !publicPaths.includes(pathname);
+        if (!isAuthenticated && isTryingToAccessPrivatePage) {
+            console.log(
+                `AuthProvider: Unauthenticated user on private page "${pathname}". Redirecting to /welcome.`
+            );
+            router.replace(`/welcome?returnUrl=${pathname}`);
+        }
+    }, [isInitialized, loading, isAuthenticated, pathname, router]);
+
+    // Hàm login (không thay đổi)
+    const login = useCallback((userData: User) => {
+        setUser(userData);
+        // Logic redirect sẽ được useEffect ở trên xử lý
+    }, []);
+
+    // Hàm logout (không thay đổi)
+    const logout = useCallback(async () => {
+        if (isLoggingOut) return; // Ngăn chặn click nhiều lần
+
+        console.log("AuthContext: Initiating logout...");
+        setIsLoggingOut(true); // <<== BẮT ĐẦU LOADING
+
+        try {
+            await authApi.logout();
+        } catch (error) {
+            console.error("Logout API call failed.", error);
         } finally {
             setUser(null);
-            if (typeof window !== "undefined") {
-                localStorage.removeItem("userData");
-            }
-            setLoading(false); // Kết thúc loading sau khi đã clear state
-            console.log(
-                "AuthContext: Client-side state and localStorage cleared for logout."
-            );
-            router.replace("/welcome");
+            localStorage.removeItem("userData"); // Dọn dẹp cả localStorage
+            router.replace("/login");
+            setIsLoggingOut(false);
         }
-    }, [router]);
+    }, [isLoggingOut, router]);
 
+    // === BƯỚC 2: THÊM checkAuthStatus VÀO VALUE CỦA CONTEXT ===
     const value = useMemo(
         () => ({
             user,
@@ -195,15 +167,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             logout,
             isAuthenticated,
             isInitialized,
+            checkAuthStatus,
+            isLoggingOut, // <<== THÊM VÀO ĐÂY
         }),
-        [user, loading, login, logout, isAuthenticated, isInitialized]
+        [
+            user,
+            loading,
+            login,
+            logout,
+            isAuthenticated,
+            isInitialized,
+            checkAuthStatus,
+            isLoggingOut,
+        ]
     );
+    // ========================================================
 
     return (
         <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
     );
 };
 
+// Hook useAuth không cần thay đổi
 export const useAuth = (): AuthContextType => {
     const context = useContext(AuthContext);
     if (!context) {

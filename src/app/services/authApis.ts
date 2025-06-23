@@ -73,6 +73,22 @@ export const authApi = {
         });
     },
 
+    loginWithGoogle: (): void => {
+        // Redirect to Google OAuth login
+
+        window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/user/login/google`;
+    },
+
+    exchangeGoogleCode: async (
+        code: string
+    ): Promise<{ user: UserApiResponse }> => {
+        // Endpoint này sẽ trả về thông tin user sau khi set cookie thành công
+        const response = await api.post<{ user: UserApiResponse }>(
+            `/user/token/google?code=${code}`
+        );
+        return response;
+    },
+
     // Verify authentication code
     verifyCode: async (
         email: string,
@@ -148,18 +164,6 @@ export const authApi = {
             throw new Error(`${error.message || "Unknown error"}`);
         }
     },
-
-    // // Send verification code to email
-    // sendVerificationCode: async (
-    //     email: string
-    // ): Promise<SendVerificationResponse> => {
-    //     return await api.post<SendVerificationResponse>(
-    //         "/user/send-verification",
-    //         {
-    //             email,
-    //         }
-    //     );
-    // },
 
     // Register new user
     register: async (
@@ -246,23 +250,6 @@ export const authApi = {
         }
     },
 
-    // // Update user profile
-    // updateProfile: async (data: {
-    //     name?: string;
-    //     currentPassword?: string;
-    //     newPassword?: string;
-    // }): Promise<{
-    //     user: {
-    //         id: string;
-    //         email: string;
-    //         name?: string;
-    //         role?: string;
-    //     };
-    //     message: string;
-    // }> => {
-    //     return await api.patch("/auth/profile", data);
-    // },
-
     changePassword: async (
         current_password: string,
         new_password: string
@@ -290,7 +277,7 @@ export const authApi = {
 export const {
     login,
     verifyCode,
-    // sendVerificationCode,
+    loginWithGoogle,
     register,
     refreshToken,
     logout,

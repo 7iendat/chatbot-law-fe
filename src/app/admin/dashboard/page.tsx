@@ -50,50 +50,6 @@ export default function AdminDashboard() {
         scrollToBottom();
     }, [chatMessages]);
 
-    const sendMessage = async () => {
-        if (!newMessage.trim()) return;
-
-        const userMessage = {
-            id: chatMessages.length + 1,
-            type: "user",
-            message: newMessage,
-            timestamp: new Date(),
-        };
-
-        setChatMessages((prev) => [...prev, userMessage]);
-        setNewMessage("");
-        setIsTyping(true);
-
-        // Simulate AI response
-        setTimeout(() => {
-            const responses = [
-                "Based on legal precedent, this type of case typically falls under contract law. I recommend reviewing sections 2-205 through 2-207 of the Uniform Commercial Code.",
-                "This appears to be a tort liability issue. The statute of limitations for personal injury claims in most jurisdictions is 2-3 years from the date of discovery.",
-                "For corporate governance matters, please refer to the Delaware General Corporation Law Section 141. Board approval may be required for this transaction.",
-                "This falls under employment law. The Equal Employment Opportunity Commission guidelines should be consulted for discrimination cases.",
-                "Intellectual property protection requires immediate action. Consider filing a provisional patent application within 12 months of disclosure.",
-            ];
-
-            const botMessage = {
-                id: chatMessages.length + 2,
-                type: "bot",
-                message:
-                    responses[Math.floor(Math.random() * responses.length)],
-                timestamp: new Date(),
-            };
-
-            setChatMessages((prev) => [...prev, botMessage]);
-            setIsTyping(false);
-        }, 2000);
-    };
-
-    const handleKeyPress = (e: any) => {
-        if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
-        }
-    };
-
     const stats = [
         {
             title: "Active Cases",
@@ -163,7 +119,7 @@ export default function AdminDashboard() {
         },
     ];
 
-    const { isAuthorized, isLoading, isAuthenticated } = useRouteGuard({
+    const { isAuthorized, isLoading } = useRouteGuard({
         requireAuth: true,
         adminOnly: true,
         redirectTo: "/welcome", // Chỉ định rõ trang redirect nếu không được phép
@@ -172,15 +128,13 @@ export default function AdminDashboard() {
         console.log("HomePage useRouteGuard state:", {
             isLoading,
             isAuthorized,
-            isAuthenticated_from_hook: isAuthenticated,
         });
-    }, [isLoading, isAuthorized, isAuthenticated]);
+    }, [isLoading, isAuthorized]);
 
-    if (isLoading || (!isAuthorized && !isAuthenticated)) {
+    if (isLoading || !isAuthorized) {
         console.log("HomePage: Showing AuthLoadingSpinner.", {
             isLoading,
             isAuthorized,
-            isAuthenticated,
         });
         return <AuthLoadingSpinner />;
     }
