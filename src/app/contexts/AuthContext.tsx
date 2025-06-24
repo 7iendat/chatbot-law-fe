@@ -64,6 +64,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                     username: response.user.username,
                     role: response.user.role,
                     avatar_url: response.user.avatar_url,
+                    login_type: response.user.login_type, // Thêm trường này nếu cần
                 };
                 setUser(fetchedUser);
             } else {

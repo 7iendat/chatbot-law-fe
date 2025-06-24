@@ -54,6 +54,7 @@ export interface UserApiResponse {
     avatar_url?: string;
     is_active?: boolean; // Thêm is_active nếu API trả về
     // Thêm các trường khác nếu API /user/me trả về
+    login_type?: string; // Thêm trường này nếu cần
 }
 
 // Interface này định nghĩa cấu trúc của toàn bộ response từ getCurrentUser
