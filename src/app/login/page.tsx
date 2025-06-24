@@ -15,8 +15,6 @@ function LoginPageLoading() {
 
 export default function LoginPage() {
     return (
-        // Bọc toàn bộ logic động trong Suspense.
-        // Next.js sẽ render LoginPageLoading trước, sau đó thay thế bằng LoginForm khi nó sẵn sàng.
         <Suspense fallback={<LoginPageLoading />}>
             <LoginForm />
         </Suspense>
