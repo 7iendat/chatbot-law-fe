@@ -120,7 +120,9 @@ export default function Sidebar({ collapsed, currentChatId }: SidebarProps) {
                     ? err.message
                     : "Lỗi không xác định khi tải lịch sử.";
             setErrorHistory(errorMessage);
-            toast.error(`Lỗi: ${errorMessage.substring(0, 100)}`);
+            toast.error(`Lỗi: ${errorMessage.substring(0, 100)}`, {
+                duration: 1000,
+            });
         } finally {
             setIsLoadingHistory(false);
         }
