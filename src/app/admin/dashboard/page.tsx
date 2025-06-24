@@ -18,7 +18,6 @@ import { AuthLoadingSpinner } from "@/app/components/AuthLoadingSpinner";
 import Image from "next/image";
 import { useAuth } from "@/app/contexts/AuthContext";
 import UserManagementSystem from "@/app/components/UserManagementSystem";
-import ChatBox from "@/app/components/Chatbot";
 import ChatbotDataUpload from "@/app/components/DataUploadAdmin";
 
 import { useRouter } from "next/navigation";

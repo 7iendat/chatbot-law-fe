@@ -25,7 +25,7 @@ import { useTheme } from "../contexts/ThemeContext"; // Đảm bảo đường d
 // Không còn USE_STREAMING, component này chỉ hoạt động ở chế độ non-streaming
 
 type UIMessage = ApiChatHistoryMessage & {
-    id: string; // ID duy nhất cho mỗi tin nhắn trên UI
+    id: string; // ID duy nhất cho mỗi tin nhắn
     isError?: boolean;
     sources?: SourceDocumentUI[]; // Nguồn tham khảo cho tin nhắn của bot
 };
@@ -142,7 +142,7 @@ export default function ChatBox({
                 setIsSending(false);
             }
         },
-        [input, chatId] // Dependencies
+        [input] // Dependencies
     );
 
     useEffect(() => {
@@ -154,7 +154,7 @@ export default function ChatBox({
             const uiInitialMessages: UIMessage[] = initialMessages.map(
                 (msg) => ({
                     ...msg,
-                    id: msg.id || `initial-${generateId()}`,
+                    id: `initial-${generateId()}`,
                     sources: msg.sources || [],
                 })
             );
@@ -175,6 +175,7 @@ export default function ChatBox({
         chatId,
         handleSendMessage,
         messages.length,
+        messages,
     ]);
 
     const handleSubmit = useCallback(async () => {
