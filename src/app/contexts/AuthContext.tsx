@@ -138,6 +138,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     const login = useCallback((userData: User) => {
         setUser(userData);
         // Logic redirect sẽ được useEffect ở trên xử lý
+        localStorage.setItem("userData", JSON.stringify(userData));
     }, []);
 
     // Hàm logout (không thay đổi)
